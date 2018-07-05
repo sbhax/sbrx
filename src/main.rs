@@ -14,7 +14,7 @@ fn main() {
         let file_result = File::open(file_name);
         match file_result {
             Ok(file) => {
-                let mut engine = engine::Engine::new(file);
+                let mut engine = engine::Engine::new(&file);
                 engine.start();
             }
             Err(error) => panic!("Error occurred while opening file: {}", error.description())

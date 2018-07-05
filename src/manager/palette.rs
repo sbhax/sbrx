@@ -1,18 +1,21 @@
 use std::collections::HashMap;
 use std::fs::File;
+use std::io::*;
 
+use ::data::*;
 use ::color::*;
 use ::engine::*;
 
-pub struct PaletteManager {
-    //    engine: &'a Engine<'a>,
+pub struct PaletteManager<'a> {
+    file: &'a File,
     color_cache: GBAColorCache,
     palettes: HashMap<String, Vec<i32>>,
 }
 
-impl PaletteManager {
-    pub fn new() -> PaletteManager {
+impl<'b> PaletteManager<'b> {
+    pub fn new(file: &File) -> PaletteManager {
         PaletteManager {
+            file,
             color_cache: GBAColorCache::new(),
             palettes: HashMap::new(),
         }
@@ -34,5 +37,35 @@ impl PaletteManager {
     pub fn load_palette_colors(&mut self, name: String) -> Vec<Color> {
         let values: Vec<i32> = self.load_palette_i32(name);
         values.iter().map(|&i| self.color_cache.from_gba(i)).collect()
+    }
+
+    pub fn load_palettes(&mut self) {
+        CHARACTERS.iter().for_each(|character| {
+            if let Ok(_) = self.file.seek(SeekFrom::Start(character.palette_offset)) {
+                let mut colors = [0; 16];
+                for i in 0..16 {
+                    let mut color_buffer = [0; 2];
+                    self.file.read(&mut color_buffer[..]);
+
+                    let a = color_buffer[0] as i32;
+                    let b = color_buffer[1] as i32;
+
+                    let color: i32 = (a << 8) | b;
+                    colors[i] = color;
+                    println!("{}#{} = {:x} ({:x}, {:x})", character.name, i, color, color_buffer[0], color_buffer[1]);
+                }
+                self.store_palette_i32(String::from(character.name), colors.to_vec());
+
+                // TODO remove
+                let converted_colors = self.load_palette_colors(character.name.to_string());
+                println!("v== {} ==v", character.name);
+                for convcol in converted_colors.iter() {
+                    println!("{:?}", convcol)
+                }
+                println!("^== {} ==^", character.name)
+            } else {
+                panic!("Failed to read palette @ ({}) {}", character.name, character.palette_offset);
+            }
+        });
     }
 }
