@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::cmp;
 
 #[derive(Eq, PartialEq, Hash, Copy, Clone, Debug)]
-struct Color {
+pub struct Color {
     r: i32,
     g: i32,
     b: i32,
@@ -14,7 +14,14 @@ pub struct GBAColorCache {
 }
 
 impl GBAColorCache {
-    fn from_gba(&mut self, value: i32) -> Color {
+    pub fn new() -> GBAColorCache {
+        GBAColorCache {
+            from_cache: HashMap::new(),
+            to_cache: HashMap::new(),
+        }
+    }
+
+    pub fn from_gba(&mut self, value: i32) -> Color {
         if let Some(color) = self.from_cache.get(&value) {
             return color.clone();
         }
@@ -28,7 +35,7 @@ impl GBAColorCache {
         color.clone()
     }
 
-    fn to_gba(&mut self, color: Color) -> i32 {
+    pub fn to_gba(&mut self, color: Color) -> i32 {
         if let Some(value) = self.to_cache.get(&color) {
             return value.clone();
         }

@@ -1,1 +1,1 @@
-mod palette;
+pub mod palette;
