@@ -18,11 +18,11 @@ impl PaletteManager {
         }
     }
 
-    pub fn store_palette_i32(mut self, name: String, colors: Vec<i32>) {
+    pub fn store_palette_i32(&mut self, name: String, colors: Vec<i32>) {
         self.palettes.insert(name, colors);
     }
 
-    pub fn store_palette_colors(mut self, name: String, colors: Vec<Color>) {
+    pub fn store_palette_colors(&mut self, name: String, colors: Vec<Color>) {
         let gba_colors: Vec<i32> = colors.iter().map(|&c| self.color_cache.to_gba(c)).collect();
         self.store_palette_i32(name, gba_colors);
     }

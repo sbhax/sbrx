@@ -22,5 +22,4 @@ fn main() {
     } else {
         println!("No file specified!")
     }
-    println!("Sonic Palette Offset: {}", data::SONIC_DATA.palette_offset);
 }
