@@ -115,3 +115,13 @@ pub const EGGMAN_DATA: Character = Character {
     sprite_offset: 0x7822F8,
     sprite_frames: &[4, 4, 4, 4, 4],
 };
+
+pub fn compute_sprite_offsets(character: Character) -> Vec<(i32, i32)> {
+    let mut data = Vec::new();
+    let mut o = 0;
+    for frame in character.sprite_frames.iter() {
+        data.push((character.sprite_offset + 0x480 * o, *frame));
+        o += *frame;
+    }
+    data
+}

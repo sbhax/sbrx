@@ -8,6 +8,11 @@ pub struct Color {
     b: i32,
 }
 
+// Special colors used in the editor
+const PURPLE_1: Color = Color {r: 255, g: 0, b: 250};
+const PURPLE_2: Color = Color {r: 185, g: 0, b: 255};
+const PURPLE_3: Color = Color {r: 185, g: 0, b: 185};
+
 pub struct GBAColorCache {
     from_cache: HashMap<i32, Color>,
     to_cache: HashMap<Color, i32>,
