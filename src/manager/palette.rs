@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::*;
+use std::io::{SeekFrom, Seek, Read, Error, Write};
+use std::result::Result;
 
 use ::data::*;
 use ::color::*;
@@ -44,52 +45,54 @@ impl<'b> PaletteManager<'b> {
     }
 
     /// Read all the palettes in the ROM and store them
-    pub fn read_palettes(&mut self) {
-        CHARACTERS.iter().for_each(|character| {
-            self.read_palette(character);
-        });
+    pub fn read_palettes(&mut self) -> Result<(), Error> {
+        for character in CHARACTERS.iter() {
+            self.read_palette(character)?
+        }
+        Ok(())
     }
 
     /// Read a palette for a specific character and store it
-    pub fn read_palette(&mut self, character: &Character) {
-        if let Ok(_) = self.file.seek(SeekFrom::Start(character.palette_offset)) {
-            let mut colors = [0; 16];
-            for i in 0..16 {
-                let mut color_buffer = [0; 2];
-                self.file.read(&mut color_buffer[..]);
+    pub fn read_palette(&mut self, character: &Character) -> Result<(), Error> {
+        self.file.seek(SeekFrom::Start(character.palette_offset))?;
+        let mut colors = [0; 16];
+        for i in 0..16 {
+            let mut color_buffer = [0; 2];
+            let result = self.file.read(&mut color_buffer[..])?;
 
-                let a = color_buffer[0] as i32;
-                let b = color_buffer[1] as i32;
+            let a = color_buffer[0] as i32;
+            let b = color_buffer[1] as i32;
 
-                // swap the bytes
-                let color: i32 = (a << 8) | b;
-                colors[i] = color;
-                println!("{}#{} = {:x} ({:x}, {:x})", character.name, i, color, color_buffer[0], color_buffer[1]);
-            }
-            self.store_palette_i32(String::from(character.name), colors.to_vec());
-
-            // TODO remove
-            let converted_colors = self.load_palette_colors(character.name.to_string());
-            println!("v== {} ==v", character.name);
-            for convcol in converted_colors.iter() {
-                println!("{:?}", convcol)
-            }
-            println!("^== {} ==^", character.name)
-        } else {
-            panic!("Failed to read palette @ ({}) {}", character.name, character.palette_offset);
+            // swap the bytes
+            let color: i32 = (a << 8) | b;
+            colors[i] = color;
+            println!("{}#{} = {:x} ({:x}, {:x})", character.name, i, color, color_buffer[0], color_buffer[1]);
         }
+        self.store_palette_i32(String::from(character.name), colors.to_vec());
+
+        // TODO remove
+        let converted_colors = self.load_palette_colors(character.name.to_string());
+        println!("v== {} ==v", character.name);
+        for convcol in converted_colors.iter() {
+            println!("{:?}", convcol)
+        }
+        println!("^== {} ==^", character.name);
+        Ok(())
     }
 
     /// Write the palette stored for a character into the ROM
-    pub fn write_palette(&mut self, character: &Character) {
-        if let Ok(_) = self.file.seek(SeekFrom::Start(character.palette_offset)) {
-            self.load_palette_i32(character.name.to_string()).iter().for_each(|&i| {
-                let a = i & 0xF0;
-                let b = i & 0x0F;
-                self.file.write(&[a as u8, b as u8]);
-            });
-        } else {
-            panic!("Failed to write palette @ ({}) {}", character.name, character.palette_offset);
+    pub fn write_palette(&mut self, character: &Character) -> Result<(), Error> {
+        self.file.seek(SeekFrom::Start(character.palette_offset))?;
+        for i in self.load_palette_i32(character.name.to_string()).iter() {
+            let a = i & 0xF0;
+            let b = i & 0x0F;
+            match self.file.write(&[a as u8, b as u8]) {
+                Ok(_) => {}
+                Err(error) => {
+                    return Err(error);
+                }
+            }
         }
+        Ok(())
     }
 }
