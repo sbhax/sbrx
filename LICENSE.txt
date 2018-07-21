@@ -1,0 +1,3 @@
+The code for this website is licensed under the MIT License.
+Google it for more information.
+
