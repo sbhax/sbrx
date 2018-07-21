@@ -5,9 +5,9 @@ use data::*;
 use manager::*;
 
 pub struct Engine<'a> {
-    file: &'a File,
-    palette_manager: Box<palette::PaletteManager<'a>>,
-    sprite_manager: Box<sprite::SpriteManager<'a>>,
+    pub file: &'a File,
+    pub palette_manager: Box<palette::PaletteManager<'a>>,
+    pub sprite_manager: Box<sprite::SpriteManager<'a>>,
 }
 
 impl<'a> Engine<'a> {
@@ -21,5 +21,6 @@ impl<'a> Engine<'a> {
 
     pub fn start(&mut self) {
         self.palette_manager.read_palettes();
+        self.sprite_manager.read_sprite(&mut *self.palette_manager, SONIC_DATA);
     }
 }

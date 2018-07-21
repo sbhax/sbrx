@@ -3,9 +3,9 @@ use std::cmp;
 
 #[derive(Eq, PartialEq, Hash, Copy, Clone, Debug)]
 pub struct Color {
-    r: i32,
-    g: i32,
-    b: i32,
+    pub r: i32,
+    pub g: i32,
+    pub b: i32,
 }
 
 // Special colors used in the editor

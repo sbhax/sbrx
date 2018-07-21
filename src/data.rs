@@ -6,6 +6,7 @@ pub const SONIC_MINE_PALETTE: i32 = 0xBF20D8;
 pub const TAILS_BLASTER_PALETTE: i32 = 0xBF2098;
 pub const SHIELD_PALETTE: i32 = 0xBF2078;
 
+#[derive(Copy, Clone)]
 pub struct Character<'a> {
     pub name: &'a str,
     pub palette_offset: u64,
