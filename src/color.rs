@@ -9,9 +9,9 @@ pub struct Color {
 }
 
 // Special colors used in the editor
-const PURPLE_1: Color = Color {r: 255, g: 0, b: 250};
-const PURPLE_2: Color = Color {r: 185, g: 0, b: 255};
-const PURPLE_3: Color = Color {r: 185, g: 0, b: 185};
+const PURPLE_1: Color = Color { r: 255, g: 0, b: 250 };
+const PURPLE_2: Color = Color { r: 185, g: 0, b: 255 };
+const PURPLE_3: Color = Color { r: 185, g: 0, b: 185 };
 
 pub struct GBAColorCache {
     from_cache: HashMap<i32, Color>,
@@ -26,7 +26,7 @@ impl GBAColorCache {
         }
     }
 
-    pub fn from_gba(&mut self, value: i32) -> Color {
+    pub fn gba_to_rgb(&mut self, value: i32) -> Color {
         if let Some(color) = self.from_cache.get(&value) {
             return color.clone();
         }
@@ -40,7 +40,7 @@ impl GBAColorCache {
         color.clone()
     }
 
-    pub fn to_gba(&mut self, color: Color) -> i32 {
+    pub fn rgb_to_gba(&mut self, color: Color) -> i32 {
         if let Some(value) = self.to_cache.get(&color) {
             return value.clone();
         }
