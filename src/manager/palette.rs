@@ -66,17 +66,17 @@ impl<'b> PaletteManager<'b> {
             // swap the bytes
             let color: i32 = (b << 8) | a;
             colors[i] = color;
-            println!("{}#{} = {:x} ({:x}, {:x})", character.name, i, color, a, b);
+//            println!("{}#{} = {:x} ({:x}, {:x})", character.name, i, color, a, b);
         }
         self.store_palette_i32(String::from(character.name), colors.to_vec());
 
-        // TODO remove
-        let converted_colors = self.load_palette_colors(character.name.to_string());
-        println!("v== {} ==v", character.name);
-        for convcol in converted_colors.iter() {
-            println!("{:?}", convcol)
-        }
-        println!("^== {} ==^", character.name);
+//        // TODO remove
+//        let converted_colors = self.load_palette_colors(character.name.to_string());
+//        println!("v== {} ==v", character.name);
+//        for convcol in converted_colors.iter() {
+//            println!("{:?}", convcol)
+//        }
+//        println!("^== {} ==^", character.name);
         Ok(())
     }
 
