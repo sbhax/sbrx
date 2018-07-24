@@ -6,6 +6,7 @@ use std::fs::File;
 use std::io::{SeekFrom, Seek, Read, Error, Write};
 use std::time::Instant;
 use self::image::{ImageBuffer, GenericImage, Rgb};
+use self::image::gif::*;
 
 use ::data::*;
 use ::color::*;
@@ -20,6 +21,34 @@ impl Spritesheet {
     pub fn new() -> Spritesheet {
         Spritesheet { animations: Vec::new() }
     }
+
+    pub fn to_img(&self, palette: Vec<Color>) -> ImageBuffer<Rgb<u8>, Vec<u8>> {
+        let max_frames = self.animations.iter().map(|animation| animation.frames.len()).max().unwrap();
+        let animation_length = self.animations.len();
+
+        let image_width = SECTION_SIZE * FRAME_SIZE * animation_length as usize;
+        let image_height = SECTION_SIZE * FRAME_SIZE * max_frames as usize;
+
+        let mut image = ImageBuffer::<Rgb<u8>, Vec<u8>>::new(image_width as u32, image_height as u32);
+
+        for (animation_index, animation) in self.animations.iter().enumerate() {
+            for (frame_index, frame) in animation.frames.iter().enumerate() {
+                for (section_index, section) in frame.sections.iter().enumerate() {
+                    for (y, row) in section.bytes.iter().enumerate() {
+                        for (x, v) in row.iter().enumerate() {
+                            let c = palette[*v as usize];
+
+                            let ix = x + (section_index % FRAME_SIZE) * SECTION_SIZE + (SECTION_SIZE * FRAME_SIZE * animation_index);
+                            let iy = y + (section_index / FRAME_SIZE) * SECTION_SIZE + FRAME_SIZE * SECTION_SIZE * frame_index;
+
+                            image.get_pixel_mut(ix as u32, iy as u32).data = [c.r as u8, c.g as u8, c.b as u8];
+                        }
+                    }
+                }
+            }
+        }
+        image
+    }
 }
 
 pub struct Animation {
@@ -29,6 +58,10 @@ pub struct Animation {
 impl Animation {
     pub fn new() -> Animation {
         Animation { frames: Vec::new() }
+    }
+
+    pub fn to_gif(&self, file_name: &str) {
+//        let gif_encoder = Encoder::new();
     }
 }
 
@@ -43,6 +76,23 @@ pub struct Frame {
 impl Frame {
     pub fn new() -> Frame {
         Frame { sections: [Section::new(); FRAME_SIZE * FRAME_SIZE] }
+    }
+
+    pub fn to_image(&self, palette: Vec<Color>) -> ImageBuffer<Rgb<u8>, Vec<u8>> {
+        let mut image = ImageBuffer::<Rgb<u8>, Vec<u8>>::new((FRAME_SIZE * SECTION_SIZE) as u32, (FRAME_SIZE * SECTION_SIZE) as u32);
+        for (section_index, section) in self.sections.iter().enumerate() {
+            for (y, row) in section.bytes.iter().enumerate() {
+                for (x, v) in row.iter().enumerate() {
+                    let c = palette[*v as usize];
+
+                    let ix = x + (section_index % FRAME_SIZE) * SECTION_SIZE;
+                    let iy = y + (section_index / FRAME_SIZE) * SECTION_SIZE;
+
+                    image.get_pixel_mut(ix as u32, iy as u32).data = [c.r as u8, c.g as u8, c.b as u8];
+                }
+            }
+        }
+        image
     }
 }
 
@@ -157,36 +207,18 @@ impl<'a> SpriteManager<'a> {
             spritesheet.animations.push(animation);
         }
 
+        println!("{} ROM reading took {:?}", character.name, start.elapsed());
+
         let palette: Vec<Color> = palette_manager.load_palette_colors(character.name.to_string());
 
-        // create the spritesheet
-        let image_width = SECTION_SIZE * FRAME_SIZE * sprite_data.len() as usize;
-        let image_height = SECTION_SIZE * FRAME_SIZE * max_frames as usize;
-        let mut image = ImageBuffer::<Rgb<u8>, Vec<u8>>::new(image_width as u32, image_height as u32);
+        let image_convert_timer = Instant::now();
+        let image = spritesheet.to_img(palette);
+        println!("{} image conversion took {:?}", character.name, image_convert_timer.elapsed());
 
-        // write the animations to the image
-
-        let animation_length = spritesheet.animations.len();
-
-        for (animation_index, animation) in spritesheet.animations.iter().enumerate() {
-            for (frame_index, frame) in animation.frames.iter().enumerate() {
-                for (section_index, section) in frame.sections.iter().enumerate() {
-                    for (y, row) in section.bytes.iter().enumerate() {
-                        for (x, v) in row.iter().enumerate() {
-                            let c = palette[*v as usize];
-
-                            let ix = x + (section_index % FRAME_SIZE) * SECTION_SIZE + (SECTION_SIZE * FRAME_SIZE * animation_index);
-                            let iy = y + (section_index / FRAME_SIZE) * SECTION_SIZE + FRAME_SIZE * SECTION_SIZE * frame_index;
-
-                            image.get_pixel_mut(ix as u32, iy as u32).data = [c.r as u8, c.g as u8, c.b as u8];
-                        }
-                    }
-                }
-            }
-        }
-
-        println!("{} Sprites took {:?}", character.name, start.elapsed());
+        let image_write_timer = Instant::now();
         image.save(format!("roms/sprites/{}.png", character.name))?;
+        println!("{} image writing took {:?}", character.name, image_write_timer.elapsed());
+
         Ok(())
     }
 }
