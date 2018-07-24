@@ -55,28 +55,20 @@ impl<'b> PaletteManager<'b> {
     /// Read a palette for a specific character and store it
     pub fn read_palette(&mut self, character: &Character) -> Result<(), Error> {
         self.file.seek(SeekFrom::Start(character.palette_offset))?;
+
+        let mut color_buffer: [u8; 32] = [0; 32];
+        self.file.read(&mut color_buffer[..])?;
+
         let mut colors = [0; 16];
         for i in 0..16 {
-            let mut color_buffer: [u8; 2] = [0; 2];
-            let result = self.file.read(&mut color_buffer[..])?;
-
-            let a = color_buffer[0] as i32;
-            let b = color_buffer[1] as i32;
+            let a = color_buffer[i * 2] as i32;
+            let b = color_buffer[i * 2 + 1] as i32;
 
             // swap the bytes
             let color: i32 = (b << 8) | a;
             colors[i] = color;
-//            println!("{}#{} = {:x} ({:x}, {:x})", character.name, i, color, a, b);
         }
         self.store_palette_i32(String::from(character.name), colors.to_vec());
-
-//        // TODO remove
-//        let converted_colors = self.load_palette_colors(character.name.to_string());
-//        println!("v== {} ==v", character.name);
-//        for convcol in converted_colors.iter() {
-//            println!("{:?}", convcol)
-//        }
-//        println!("^== {} ==^", character.name);
         Ok(())
     }
 
@@ -94,5 +86,14 @@ impl<'b> PaletteManager<'b> {
             }
         }
         Ok(())
+    }
+
+    pub fn print_palette(&mut self, character: &Character) {
+        let converted_colors = self.load_palette_colors(character.name.to_string());
+        println!("v== {} ==v", character.name);
+        for convcol in converted_colors.iter() {
+            println!("{:?}", convcol)
+        }
+        println!("^== {} ==^", character.name);
     }
 }

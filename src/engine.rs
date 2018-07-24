@@ -1,5 +1,6 @@
 use std::fs::File;
 use std::io::*;
+use std::time::Instant;
 
 use data::*;
 use manager::*;
@@ -20,7 +21,10 @@ impl<'a> Engine<'a> {
     }
 
     pub fn start(&mut self) {
+        let engine_timer = Instant::now();
         self.palette_manager.read_palettes();
-        self.sprite_manager.read_sprite(&mut *self.palette_manager, SONIC_DATA);
+        println!("Palette ROM loading: {:?}", engine_timer.elapsed());
+        self.sprite_manager.read_sprites();
+        println!("Total Engine Start Time: {:?}", engine_timer.elapsed());
     }
 }

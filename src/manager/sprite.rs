@@ -22,7 +22,7 @@ impl Spritesheet {
         Spritesheet { animations: Vec::new() }
     }
 
-    pub fn to_img(&self, palette: Vec<Color>) -> ImageBuffer<Rgb<u8>, Vec<u8>> {
+    pub fn to_img(&self, palette: &[Color]) -> ImageBuffer<Rgb<u8>, Vec<u8>> {
         let max_frames = self.animations.iter().map(|animation| animation.frames.len()).max().unwrap();
         let animation_length = self.animations.len();
 
@@ -60,8 +60,8 @@ impl Animation {
         Animation { frames: Vec::new() }
     }
 
-    pub fn to_gif(&self, file_name: &str) {
-//        let gif_encoder = Encoder::new();
+    pub fn get_frames(&self, palette: &[Color]) -> Vec<ImageBuffer<Rgb<u8>, Vec<u8>>> {
+        self.frames.iter().map(|frame| frame.to_image(palette)).collect()
     }
 }
 
@@ -78,8 +78,12 @@ impl Frame {
         Frame { sections: [Section::new(); FRAME_SIZE * FRAME_SIZE] }
     }
 
-    pub fn to_image(&self, palette: Vec<Color>) -> ImageBuffer<Rgb<u8>, Vec<u8>> {
-        let mut image = ImageBuffer::<Rgb<u8>, Vec<u8>>::new((FRAME_SIZE * SECTION_SIZE) as u32, (FRAME_SIZE * SECTION_SIZE) as u32);
+    pub fn to_image(&self, palette: &[Color]) -> ImageBuffer<Rgb<u8>, Vec<u8>> {
+        let mut image = ImageBuffer::<Rgb<u8>, Vec<u8>>::new(
+            (FRAME_SIZE * SECTION_SIZE) as u32,
+            (FRAME_SIZE * SECTION_SIZE) as u32,
+        );
+
         for (section_index, section) in self.sections.iter().enumerate() {
             for (y, row) in section.bytes.iter().enumerate() {
                 for (x, v) in row.iter().enumerate() {
@@ -110,19 +114,26 @@ impl Section {
     }
 }
 
-
 // --
 
 pub struct SpriteManager<'a> {
     file: &'a File,
+    spritesheets: HashMap<String, Spritesheet>,
 }
 
 impl<'a> SpriteManager<'a> {
     pub fn new<'b>(file: &'b File) -> SpriteManager {
-        SpriteManager { file }
+        SpriteManager { file, spritesheets: HashMap::new() }
     }
 
-    pub fn read_sprite(&mut self, palette_manager: &mut palette::PaletteManager, character: Character) -> Result<(), Error> {
+    pub fn read_sprites(&mut self) -> Result<(), Error> {
+        for character in CHARACTERS.iter() {
+            self.read_sprite(character)?;
+        }
+        Ok(())
+    }
+
+    pub fn read_sprite(&mut self, character: &Character) -> Result<(), Error> {
         let start = Instant::now();
         let sprite_data = compute_sprite_offsets(character);
 
@@ -172,17 +183,17 @@ impl<'a> SpriteManager<'a> {
                     let mut x = 1;
                     let mut y = 1;
 
-                    let frame_offset = offset + FRAME_SIZE as i32 * FRAME_SIZE as i32 * current_frame * 32;
-                    let frame_size = FRAME_SIZE as i32 * FRAME_SIZE as i32 * 32;
+                    const FRAME_BYTE_COUNT: usize = FRAME_SIZE  * FRAME_SIZE * 32;
+                    let frame_offset = offset + FRAME_BYTE_COUNT as i32 * current_frame;
 
                     self.file.seek(SeekFrom::Start(frame_offset as u64))?;
 
-                    for i in 0..frame_size {
-                        // TODO: optimize reads
-                        let mut v = [0; 1];
-                        self.file.read(&mut v[..])?;
-                        let a = v[0] & 0x0F;
-                        let b = (v[0] & 0xF0) >> 4;
+                    let mut buffer = [0; FRAME_BYTE_COUNT];
+                    self.file.read(&mut buffer[..])?;
+
+                    for i in 0..FRAME_BYTE_COUNT {
+                        let a = buffer[i] & 0x0F;
+                        let b = (buffer[i] & 0xF0) >> 4;
 
                         frame.sections[SECTION_MAPPING[current_section]].bytes[y - 1][x - 1] = a;
                         frame.sections[SECTION_MAPPING[current_section]].bytes[y - 1][x] = b;
@@ -208,16 +219,6 @@ impl<'a> SpriteManager<'a> {
         }
 
         println!("{} ROM reading took {:?}", character.name, start.elapsed());
-
-        let palette: Vec<Color> = palette_manager.load_palette_colors(character.name.to_string());
-
-        let image_convert_timer = Instant::now();
-        let image = spritesheet.to_img(palette);
-        println!("{} image conversion took {:?}", character.name, image_convert_timer.elapsed());
-
-        let image_write_timer = Instant::now();
-        image.save(format!("roms/sprites/{}.png", character.name))?;
-        println!("{} image writing took {:?}", character.name, image_write_timer.elapsed());
 
         Ok(())
     }
