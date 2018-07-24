@@ -3,7 +3,7 @@ extern crate image;
 use std::collections::HashMap;
 use std::mem;
 use std::fs::File;
-use std::io::{SeekFrom, Seek, Read, Error, Write};
+use std::io::{SeekFrom, Seek, Read, Error, ErrorKind, Write};
 use std::time::Instant;
 use self::image::{ImageBuffer, GenericImage, Rgb};
 use self::image::gif::*;
@@ -12,6 +12,12 @@ use ::data::*;
 use ::color::*;
 use ::engine::*;
 use ::manager::*;
+
+/// normal character sprites are 6x6 sections
+pub const FRAME_SIZE: usize = 6;
+
+/// each section is 8x8 pixels
+pub const SECTION_SIZE: usize = 8;
 
 pub struct Spritesheet {
     pub animations: Vec<Animation>
@@ -22,6 +28,7 @@ impl Spritesheet {
         Spritesheet { animations: Vec::new() }
     }
 
+    /// convert a spritesheet to an image
     pub fn to_img(&self, palette: &[Color]) -> ImageBuffer<Rgb<u8>, Vec<u8>> {
         let max_frames = self.animations.iter().map(|animation| animation.frames.len()).max().unwrap();
         let animation_length = self.animations.len();
@@ -49,6 +56,60 @@ impl Spritesheet {
         }
         image
     }
+
+    /// convert an image to a spritesheet
+    pub fn from_img(image: &mut ImageBuffer<Rgb<u8>, Vec<u8>>, character: &Character) -> Result<(Spritesheet, Vec<Color>), Error> {
+        let mut spritesheet = Spritesheet::new();
+        let mut palette = Vec::new();
+
+        for (animation_index, frames) in character.sprite_frames.iter().enumerate() {
+            for current_frame in 0..*frames {
+                for sy in 0..FRAME_SIZE {
+                    for sx in 0..FRAME_SIZE {
+                        for y in 0..SECTION_SIZE {
+                            for x in 0..SECTION_SIZE {
+                                let ix = sx * SECTION_SIZE + x + (SECTION_SIZE * FRAME_SIZE * animation_index as usize);
+                                let iy = sy * SECTION_SIZE + y + (SECTION_SIZE * FRAME_SIZE * current_frame as usize);
+
+                                const SECTION_MAPPING: [usize; 36] = [
+                                    00, 01, 02, 03, 24, 25,
+                                    04, 05, 06, 07, 26, 27,
+                                    08, 09, 10, 11, 28, 29,
+                                    12, 13, 14, 15, 30, 31,
+                                    16, 17, 18, 19, 32, 33,
+                                    20, 21, 22, 23, 34, 35,
+                                ];
+                                let section_index = sx + sy * FRAME_SIZE;
+
+                                // convert to our color struct
+                                let rgb = image.get_pixel_mut(ix as u32, iy as u32).data;
+                                let color = Color { r: rgb[0] as i32, g: rgb[1] as i32, b: rgb[2] as i32 };
+
+                                let mut color_index = 0;
+
+                                if palette.contains(&color) {
+                                    color_index = palette.iter().position(|&c| c == color).unwrap();
+                                } else if palette.len() < 15 {
+                                    palette.push(color);
+                                    color_index = palette.len() - 1;
+                                } else {
+                                    return Err(Error::new(ErrorKind::InvalidData, format!("Invalid color found at {}, {}", ix, iy)));
+                                }
+
+                                spritesheet
+                                    .animations[animation_index]
+                                    .frames[current_frame as usize]
+                                    .sections[SECTION_MAPPING[section_index]]
+                                    .bytes[y][x] = color_index as u8;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok((spritesheet, palette))
+    }
 }
 
 pub struct Animation {
@@ -64,9 +125,6 @@ impl Animation {
         self.frames.iter().map(|frame| frame.to_image(palette)).collect()
     }
 }
-
-// normal character sprites are 6x6 sections
-const FRAME_SIZE: usize = 6;
 
 #[derive(Copy, Clone)]
 pub struct Frame {
@@ -100,9 +158,6 @@ impl Frame {
     }
 }
 
-// each section is 8x8 pixels
-const SECTION_SIZE: usize = 8;
-
 #[derive(Copy, Clone)]
 pub struct Section {
     pub bytes: [[u8; SECTION_SIZE]; SECTION_SIZE]
@@ -118,7 +173,7 @@ impl Section {
 
 pub struct SpriteManager<'a> {
     file: &'a File,
-    spritesheets: HashMap<String, Spritesheet>,
+    pub spritesheets: HashMap<String, Spritesheet>,
 }
 
 impl<'a> SpriteManager<'a> {
@@ -134,6 +189,12 @@ impl<'a> SpriteManager<'a> {
     }
 
     pub fn read_sprite(&mut self, character: &Character) -> Result<(), Error> {
+        let spritesheet = self.read_spritesheet_from_rom(character)?;
+        self.spritesheets.insert(character.name.to_string(), spritesheet);
+        Ok(())
+    }
+
+    pub fn read_spritesheet_from_rom(&mut self, character: &Character) -> Result<Spritesheet, Error> {
         let start = Instant::now();
         let sprite_data = compute_sprite_offsets(character);
 
@@ -178,12 +239,11 @@ impl<'a> SpriteManager<'a> {
                         34, 35,
                     ];
 
-
                     let mut current_section = 0;
                     let mut x = 1;
                     let mut y = 1;
 
-                    const FRAME_BYTE_COUNT: usize = FRAME_SIZE  * FRAME_SIZE * 32;
+                    const FRAME_BYTE_COUNT: usize = FRAME_SIZE * FRAME_SIZE * 32;
                     let frame_offset = offset + FRAME_BYTE_COUNT as i32 * current_frame;
 
                     self.file.seek(SeekFrom::Start(frame_offset as u64))?;
@@ -200,7 +260,7 @@ impl<'a> SpriteManager<'a> {
 
                         // check bounds
                         x += 1;
-                        if x != 0 && x % 8 == 0 {
+                        if x % 8 == 0 {
                             x -= 8;
                             if y != 0 && y % 8 == 0 {
                                 x = 0;
@@ -212,14 +272,25 @@ impl<'a> SpriteManager<'a> {
                         x += 1;
                     }
                 }
-
                 animation.frames.push(frame);
             }
             spritesheet.animations.push(animation);
         }
+        println!(" * {} ROM reading: {:?}", character.name, start.elapsed());
+        Ok(spritesheet)
+    }
 
-        println!("{} ROM reading took {:?}", character.name, start.elapsed());
+    pub fn store_image(&mut self, palette_manager: &mut palette::PaletteManager, image: &mut ImageBuffer<Rgb<u8>, Vec<u8>>, character: &Character) -> Result<(), Error> {
+        let (spritesheet, palette) = Spritesheet::from_img(image, character)?;
+        self.spritesheets.insert(character.name.to_string(), spritesheet);
+        palette_manager.store_palette_colors(character.name.to_string(), palette);
+        Ok(())
+    }
 
+    pub fn write_spritesheet(&mut self, palette_manager: &mut palette::PaletteManager, character: &Character) -> Result<(), Error> {
+        let spritesheet = self.spritesheets.get(&character.name.to_string());
+        palette_manager.write_palette(character);
+        // TODO write image
         Ok(())
     }
 }
