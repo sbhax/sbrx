@@ -55,7 +55,7 @@
                               </packing>
                             </child>
                             <child>
-                              <object class="GtkButton" id="button1">
+                              <object class="GtkButton" id="character_upload_file">
                                 <property name="label" translatable="yes">Upload File</property>
                                 <property name="visible">True</property>
                                 <property name="can_focus">True</property>
@@ -68,7 +68,7 @@
                               </packing>
                             </child>
                             <child>
-                              <object class="GtkButton" id="button2">
+                              <object class="GtkButton" id="character_save_to_file">
                                 <property name="label" translatable="yes">Save to File</property>
                                 <property name="visible">True</property>
                                 <property name="can_focus">True</property>
@@ -81,7 +81,7 @@
                               </packing>
                             </child>
                             <child>
-                              <object class="GtkButton" id="button3">
+                              <object class="GtkButton" id="character_write_to_rom">
                                 <property name="label" translatable="yes">Write to ROM</property>
                                 <property name="visible">True</property>
                                 <property name="can_focus">True</property>

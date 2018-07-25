@@ -309,16 +309,15 @@ impl SpriteManager {
         Ok(())
     }
 
-    pub fn write_spritesheets(&mut self, palette_manager: &mut palette::PaletteManager) -> Result<(), Error> {
+    pub fn write_spritesheets(&mut self) -> Result<(), Error> {
         for character in CHARACTERS.iter() {
-            self.write_spritesheet(palette_manager, character)?;
+            self.write_spritesheet(character)?;
         }
         Ok(())
     }
 
-    pub fn write_spritesheet(&mut self, palette_manager: &mut palette::PaletteManager, character: &Character) -> Result<(), Error> {
+    pub fn write_spritesheet(&mut self, character: &Character) -> Result<(), Error> {
         let spritesheet_o = self.spritesheets.get(&character.name.to_string());
-        palette_manager.write_palette(character)?;
         if let Some(spritesheet) = spritesheet_o {
             let mut bytes: Vec<u8> = Vec::new();
 
