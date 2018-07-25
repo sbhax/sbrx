@@ -13,6 +13,11 @@ use ::color::*;
 use ::engine::*;
 use ::manager::*;
 
+// colors used for the background in spritesheets
+const PURPLE_1: Color = Color { r: 255, g: 0, b: 255 };
+const PURPLE_2: Color = Color { r: 185, g: 0, b: 255 };
+const PURPLE_3: Color = Color { r: 185, g: 0, b: 185 }; // no frame
+
 /// normal character sprites are 6x6 sections
 pub const FRAME_SIZE: usize = 6;
 
@@ -36,14 +41,26 @@ impl Spritesheet {
         let image_width = SECTION_SIZE * FRAME_SIZE * animation_length as usize;
         let image_height = SECTION_SIZE * FRAME_SIZE * max_frames as usize;
 
-        let mut image = ImageBuffer::<Rgb<u8>, Vec<u8>>::new(image_width as u32, image_height as u32);
+        let purple_rgb = Rgb { data: [PURPLE_3.r as u8, PURPLE_3.g as u8, PURPLE_3.b as u8] };
+        let mut image = ImageBuffer::<Rgb<u8>, Vec<u8>>::from_pixel(image_width as u32, image_height as u32, purple_rgb);
 
         for (animation_index, animation) in self.animations.iter().enumerate() {
             for (frame_index, frame) in animation.frames.iter().enumerate() {
                 for (section_index, section) in frame.sections.iter().enumerate() {
                     for (y, row) in section.bytes.iter().enumerate() {
                         for (x, v) in row.iter().enumerate() {
-                            let c = palette[*v as usize];
+                            let c: Color;
+                            let b = *v as usize;
+
+                            let c = if b == 0 {
+                                if (animation_index % 2 == 0) == (frame_index % 2 == 0) {
+                                    PURPLE_1
+                                } else {
+                                    PURPLE_2
+                                }
+                            } else {
+                                palette[b]
+                            };
 
                             let ix = x + (section_index % FRAME_SIZE) * SECTION_SIZE + (SECTION_SIZE * FRAME_SIZE * animation_index);
                             let iy = y + (section_index / FRAME_SIZE) * SECTION_SIZE + FRAME_SIZE * SECTION_SIZE * frame_index;
@@ -85,9 +102,11 @@ impl Spritesheet {
                                 let rgb = image.get_pixel_mut(ix as u32, iy as u32).data;
                                 let color = Color { r: rgb[0] as i32, g: rgb[1] as i32, b: rgb[2] as i32 };
 
-                                let mut color_index = 0;
+                                let mut color_index;
 
-                                if palette.contains(&color) {
+                                if color == PURPLE_1 || color == PURPLE_2 || color == PURPLE_3 {
+                                    color_index = 0;
+                                } else if palette.contains(&color) {
                                     color_index = palette.iter().position(|&c| c == color).unwrap();
                                 } else if palette.len() < 15 {
                                     palette.push(color);
@@ -287,10 +306,68 @@ impl<'a> SpriteManager<'a> {
         Ok(())
     }
 
-    pub fn write_spritesheet(&mut self, palette_manager: &mut palette::PaletteManager, character: &Character) -> Result<(), Error> {
-        let spritesheet = self.spritesheets.get(&character.name.to_string());
-        palette_manager.write_palette(character);
-        // TODO write image
+    pub fn write_spritesheets(&mut self, palette_manager: &mut palette::PaletteManager) -> Result<(), Error> {
+        for character in CHARACTERS.iter() {
+            self.write_spritesheet(palette_manager, character);
+        }
         Ok(())
+    }
+
+    pub fn write_spritesheet(&mut self, palette_manager: &mut palette::PaletteManager, character: &Character) -> Result<(), Error> {
+        let spritesheet_o = self.spritesheets.get(&character.name.to_string());
+        palette_manager.write_palette(character);
+        if let Some(spritesheet) = spritesheet_o {
+            // flatten the spritesheet structure
+            let bytes = ByteFolder::new(spritesheet.animations.iter().flat_map(
+                |animation| animation.frames.iter().flat_map(
+                    |frame| frame.sections.iter().flat_map(
+                        |section| section.bytes.iter().flat_map(
+                            |row| row.iter().map(|&b| b)
+                        )
+                    )
+                )
+            ));
+            self.file.seek(SeekFrom::Start(character.sprite_offset as u64))?;
+            self.file.write(bytes.collect::<Vec<_>>().as_slice());
+        }
+        Ok(())
+    }
+
+    pub fn save_spritesheet(&self, palette_manager: &mut palette::PaletteManager, character: &Character) -> Result<(), Error> {
+        let spritesheet_o = self.spritesheets.get(&character.name.to_string());
+        if let Some(spritesheet) = spritesheet_o {
+            let palette = palette_manager.load_palette_colors(character.name.to_string());
+            spritesheet.to_img(&palette[..]).save(format!("roms/sprites/{}.png", character.name))?;
+        }
+        Ok(())
+    }
+
+    pub fn load_spritesheet(&self, character: &Character) -> Result<&Spritesheet, Error> {
+        let result = self.spritesheets.get(&character.name.to_string());
+        match result {
+            Some(spritesheet) => return Ok(spritesheet),
+            None => return Err(Error::new(ErrorKind::InvalidData, format!("invalid character {}", &character.name.to_string())))
+        }
+    }
+}
+
+struct ByteFolder<I: Iterator<Item=u8>> {
+    inner: I
+}
+
+impl<I: Iterator<Item=u8>> ByteFolder<I> {
+    fn new(iter: I) -> Self {
+        ByteFolder {
+            inner: iter
+        }
+    }
+}
+
+impl<I: Iterator<Item=u8>> Iterator for ByteFolder<I> {
+    type Item = u8;
+    fn next(&mut self) -> Option<Self::Item> {
+        let first = self.inner.next()?;
+        let second = self.inner.next()?;
+        Some(first | (second << 4))
     }
 }
