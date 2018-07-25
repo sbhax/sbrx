@@ -77,25 +77,20 @@ impl Spritesheet {
     /// convert an image to a spritesheet
     pub fn from_img(image: &mut ImageBuffer<Rgb<u8>, Vec<u8>>, character: &Character) -> Result<(Spritesheet, Vec<Color>), Error> {
         let mut spritesheet = Spritesheet::new();
-        let mut palette = Vec::new();
+        let mut palette = vec![Color { r: 0, g: 248, b: 248 }];
 
         for (animation_index, frames) in character.sprite_frames.iter().enumerate() {
-            for current_frame in 0..*frames {
+            let mut animation = Animation::new();
+            spritesheet.animations.push(animation);
+            for frame_index in 0..*frames {
+                let mut frame = Frame::new();
+                spritesheet.animations[animation_index].frames.push(frame);
                 for sy in 0..FRAME_SIZE {
                     for sx in 0..FRAME_SIZE {
                         for y in 0..SECTION_SIZE {
                             for x in 0..SECTION_SIZE {
                                 let ix = sx * SECTION_SIZE + x + (SECTION_SIZE * FRAME_SIZE * animation_index as usize);
-                                let iy = sy * SECTION_SIZE + y + (SECTION_SIZE * FRAME_SIZE * current_frame as usize);
-
-                                const SECTION_MAPPING: [usize; 36] = [
-                                    00, 01, 02, 03, 24, 25,
-                                    04, 05, 06, 07, 26, 27,
-                                    08, 09, 10, 11, 28, 29,
-                                    12, 13, 14, 15, 30, 31,
-                                    16, 17, 18, 19, 32, 33,
-                                    20, 21, 22, 23, 34, 35,
-                                ];
+                                let iy = sy * SECTION_SIZE + y + (SECTION_SIZE * FRAME_SIZE * frame_index as usize);
                                 let section_index = sx + sy * FRAME_SIZE;
 
                                 // convert to our color struct
@@ -108,7 +103,7 @@ impl Spritesheet {
                                     color_index = 0;
                                 } else if palette.contains(&color) {
                                     color_index = palette.iter().position(|&c| c == color).unwrap();
-                                } else if palette.len() < 15 {
+                                } else if palette.len() < 16 {
                                     palette.push(color);
                                     color_index = palette.len() - 1;
                                 } else {
@@ -117,14 +112,18 @@ impl Spritesheet {
 
                                 spritesheet
                                     .animations[animation_index]
-                                    .frames[current_frame as usize]
-                                    .sections[SECTION_MAPPING[section_index]]
+                                    .frames[frame_index as usize]
+                                    .sections[section_index]
                                     .bytes[y][x] = color_index as u8;
                             }
                         }
                     }
                 }
             }
+        }
+
+        while palette.len() < 16 {
+            palette.push(Color { r: 0, g: 0, b: 0 });
         }
 
         Ok((spritesheet, palette))
@@ -308,27 +307,46 @@ impl<'a> SpriteManager<'a> {
 
     pub fn write_spritesheets(&mut self, palette_manager: &mut palette::PaletteManager) -> Result<(), Error> {
         for character in CHARACTERS.iter() {
-            self.write_spritesheet(palette_manager, character);
+            self.write_spritesheet(palette_manager, character)?;
         }
         Ok(())
     }
 
     pub fn write_spritesheet(&mut self, palette_manager: &mut palette::PaletteManager, character: &Character) -> Result<(), Error> {
         let spritesheet_o = self.spritesheets.get(&character.name.to_string());
-        palette_manager.write_palette(character);
+        palette_manager.write_palette(character)?;
         if let Some(spritesheet) = spritesheet_o {
-            // flatten the spritesheet structure
-            let bytes = ByteFolder::new(spritesheet.animations.iter().flat_map(
-                |animation| animation.frames.iter().flat_map(
-                    |frame| frame.sections.iter().flat_map(
+            let mut bytes: Vec<u8> = Vec::new();
+
+            for animation in spritesheet.animations.iter() {
+                for frame in animation.frames.iter() {
+                    // resort the sections back to the GBA format
+                    let mut sorted_sections = [Section::new(); FRAME_SIZE * FRAME_SIZE];
+
+                    const SECTION_MAPPING: [usize; 36] = [
+                        00, 01, 02, 03, 24, 25,
+                        04, 05, 06, 07, 26, 27,
+                        08, 09, 10, 11, 28, 29,
+                        12, 13, 14, 15, 30, 31,
+                        16, 17, 18, 19, 32, 33,
+                        20, 21, 22, 23, 34, 35,
+                    ];
+
+                    for (section_index, section) in frame.sections.iter().enumerate() {
+                        sorted_sections[SECTION_MAPPING[section_index]] = *section;
+                    }
+
+                    bytes.extend(sorted_sections.iter().flat_map(
                         |section| section.bytes.iter().flat_map(
                             |row| row.iter().map(|&b| b)
                         )
-                    )
-                )
-            ));
+                    ));
+                }
+            }
+
             self.file.seek(SeekFrom::Start(character.sprite_offset as u64))?;
-            self.file.write(bytes.collect::<Vec<_>>().as_slice());
+            let mut byte_folder = ByteFolder::new(bytes.into_iter());
+            self.file.write(byte_folder.collect::<Vec<_>>().as_slice())?;
         }
         Ok(())
     }

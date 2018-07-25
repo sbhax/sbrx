@@ -76,14 +76,9 @@ impl<'b> PaletteManager<'b> {
     pub fn write_palette(&mut self, character: &Character) -> Result<(), Error> {
         self.file.seek(SeekFrom::Start(character.palette_offset))?;
         for i in self.load_palette_i32(character.name.to_string()).iter() {
-            let a = i & 0xF0;
-            let b = i & 0x0F;
-            match self.file.write(&[a as u8, b as u8]) {
-                Ok(_) => {}
-                Err(error) => {
-                    return Err(error);
-                }
-            }
+            let b = (i & 0xFF00) >> 8;
+            let a = i & 0x00FF;
+            self.file.write(&[a as u8, b as u8])?;
         }
         Ok(())
     }
