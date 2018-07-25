@@ -5,6 +5,7 @@ use std::mem;
 use std::fs::File;
 use std::io::{SeekFrom, Seek, Read, Error, ErrorKind, Write};
 use std::time::Instant;
+use std::sync::{Arc, Mutex};
 use self::image::{ImageBuffer, GenericImage, Rgb};
 use self::image::gif::*;
 
@@ -189,14 +190,17 @@ impl Section {
 
 // --
 
-pub struct SpriteManager<'a> {
-    file: &'a File,
+pub struct SpriteManager {
+    file: Arc<Mutex<File>>,
     pub spritesheets: HashMap<String, Spritesheet>,
 }
 
-impl<'a> SpriteManager<'a> {
-    pub fn new<'b>(file: &'b File) -> SpriteManager {
-        SpriteManager { file, spritesheets: HashMap::new() }
+impl SpriteManager {
+    pub fn new(file: Arc<Mutex<File>>) -> SpriteManager {
+        SpriteManager {
+            file: file.clone(),
+            spritesheets: HashMap::new()
+        }
     }
 
     pub fn read_sprites(&mut self) -> Result<(), Error> {
@@ -264,10 +268,10 @@ impl<'a> SpriteManager<'a> {
                     const FRAME_BYTE_COUNT: usize = FRAME_SIZE * FRAME_SIZE * 32;
                     let frame_offset = offset + FRAME_BYTE_COUNT as i32 * current_frame;
 
-                    self.file.seek(SeekFrom::Start(frame_offset as u64))?;
+                    self.file.lock().unwrap().seek(SeekFrom::Start(frame_offset as u64))?;
 
                     let mut buffer = [0; FRAME_BYTE_COUNT];
-                    self.file.read(&mut buffer[..])?;
+                    self.file.lock().unwrap().read(&mut buffer[..])?;
 
                     for i in 0..FRAME_BYTE_COUNT {
                         let a = buffer[i] & 0x0F;
@@ -344,9 +348,9 @@ impl<'a> SpriteManager<'a> {
                 }
             }
 
-            self.file.seek(SeekFrom::Start(character.sprite_offset as u64))?;
+            self.file.lock().unwrap().seek(SeekFrom::Start(character.sprite_offset as u64))?;
             let mut byte_folder = ByteFolder::new(bytes.into_iter());
-            self.file.write(byte_folder.collect::<Vec<_>>().as_slice())?;
+            self.file.lock().unwrap().write(byte_folder.collect::<Vec<_>>().as_slice())?;
         }
         Ok(())
     }

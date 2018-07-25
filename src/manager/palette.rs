@@ -2,21 +2,22 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::{SeekFrom, Seek, Read, Error, Write};
 use std::result::Result;
+use std::sync::{Arc, Mutex};
 
 use ::data::*;
 use ::color::*;
 use ::engine::*;
 
-pub struct PaletteManager<'a> {
-    file: &'a File,
+pub struct PaletteManager {
+    file: Arc<Mutex<File>>,
     color_cache: GBAColorCache,
     palettes: HashMap<String, Vec<i32>>,
 }
 
-impl<'b> PaletteManager<'b> {
-    pub fn new(file: &File) -> PaletteManager {
+impl PaletteManager {
+    pub fn new(file: Arc<Mutex<File>>) -> PaletteManager {
         PaletteManager {
-            file,
+            file: file.clone(),
             color_cache: GBAColorCache::new(),
             palettes: HashMap::new(),
         }
@@ -54,10 +55,10 @@ impl<'b> PaletteManager<'b> {
 
     /// Read a palette for a specific character and store it
     pub fn read_palette(&mut self, character: &Character) -> Result<(), Error> {
-        self.file.seek(SeekFrom::Start(character.palette_offset))?;
+        self.file.lock().unwrap().seek(SeekFrom::Start(character.palette_offset))?;
 
         let mut color_buffer: [u8; 32] = [0; 32];
-        self.file.read(&mut color_buffer[..])?;
+        self.file.lock().unwrap().read(&mut color_buffer[..])?;
 
         let mut colors = [0; 16];
         for i in 0..16 {
@@ -74,11 +75,11 @@ impl<'b> PaletteManager<'b> {
 
     /// Write the palette stored for a character into the ROM
     pub fn write_palette(&mut self, character: &Character) -> Result<(), Error> {
-        self.file.seek(SeekFrom::Start(character.palette_offset))?;
+        self.file.lock().unwrap().seek(SeekFrom::Start(character.palette_offset))?;
         for i in self.load_palette_i32(character.name.to_string()).iter() {
             let b = (i & 0xFF00) >> 8;
             let a = i & 0x00FF;
-            self.file.write(&[a as u8, b as u8])?;
+            self.file.lock().unwrap().write(&[a as u8, b as u8])?;
         }
         Ok(())
     }
