@@ -15,7 +15,7 @@ use ::engine::*;
 use ::manager::*;
 
 // colors used for the background in spritesheets
-const PURPLE_1: Color = Color { r: 255, g: 0, b: 255 };
+const PURPLE_1: Color = Color { r: 255, g: 0, b: 250 };
 const PURPLE_2: Color = Color { r: 185, g: 0, b: 255 };
 const PURPLE_3: Color = Color { r: 185, g: 0, b: 185 }; // no frame
 
@@ -108,7 +108,9 @@ impl Spritesheet {
                                     palette.push(color);
                                     color_index = palette.len() - 1;
                                 } else {
-                                    return Err(Error::new(ErrorKind::InvalidData, format!("Invalid color found at {}, {}", ix, iy)));
+                                    println!("Found invaild color at ({}, {})", ix, iy);
+//                                    return Err(Error::new(ErrorKind::InvalidData, format!("Invalid color found at {}, {}", ix, iy)));
+                                    color_index = 0;
                                 }
 
                                 spritesheet
