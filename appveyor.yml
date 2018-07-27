@@ -21,3 +21,7 @@ build_script:
   - cargo build --release
 
 test: false
+
+artifacts:
+  - path: target\release\sbrx.exe
+  - name: sbrx
