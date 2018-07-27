@@ -24,4 +24,4 @@ test: false
 
 artifacts:
   - path: target\release\sbrx.exe
-  - name: sbrx
+    name: sbrx
