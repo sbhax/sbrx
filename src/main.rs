@@ -23,7 +23,7 @@ mod manager;
 const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 
 lazy_static! {
-    static ref ENGINE: Arc<Mutex<engine::Engine>> = {
+    static ref ENGINE: Arc<Mutex<Option<engine::Engine>>> = {
         if env::args().len() > 1 {
             let file_name = env::args().nth(1).unwrap();
             let file_result = OpenOptions::new()
@@ -32,20 +32,18 @@ lazy_static! {
                 .open(file_name);
             match file_result {
                 Ok(file) => {
-                    Arc::new(Mutex::new(engine::Engine::new(Arc::new(Mutex::new(file)))))
+                    Arc::new(Mutex::new(Some(engine::Engine::new(Arc::new(Mutex::new(file))))))
+                },
+                Err(error) => {
+                    println!("Error occurred while opening file: {}", error);
+                    Arc::new(Mutex::new(None))
                 }
-                Err(error) => panic!("Error occurred while opening file: {}", error)
             }
         } else {
-            panic!("No file specified!");
+            println!("No file specified!");
+            Arc::new(Mutex::new(None))
         }
     };
-}
-
-fn main() {
-    let engine = ENGINE.clone();
-    engine.lock().unwrap().start().unwrap();
-    start_gui();
 }
 
 // make moving clones into closures more convenient
@@ -67,9 +65,63 @@ macro_rules! clone {
     );
 }
 
-fn start_gui() {
+fn main() {
     gtk::init().unwrap();
+    { // scope needed to drop lock
+        let e = ENGINE.clone();
+        let mut e_o = e.lock().unwrap();
+        if let Some(ref mut engine) = *e_o {
+            engine.start().unwrap();
+        } else {
+            // ask for a file
+            let dialog = FileChooserDialog::new::<gtk::ApplicationWindow>(
+                Some(&format!("Choose a ROM to open")),
+                None,
+                FileChooserAction::Open,
+            );
 
+            dialog.add_button("Cancel", 0);
+            dialog.add_button("Open", 1);
+            dialog.run();
+
+            dialog.connect_response(clone!(dialog => move |_, response_id| {
+            match response_id {
+                0 => {
+                    println!("Closing file chooser");
+                    dialog.emit_close();
+                },
+                1 => {
+                    println!("Opening ROM");
+
+                    let file_name = dialog.get_filename().unwrap();
+
+                    let file_result = OpenOptions::new()
+                                    .read(true)
+                                    .write(true)
+                                    .open(file_name);
+                    match file_result {
+                        Ok(file) => {
+                            let mut e = ENGINE.clone();
+                            let mut engine = engine::Engine::new(Arc::new(Mutex::new(file)));
+                            engine.start().unwrap();
+                            *e.lock().unwrap() = Some(engine);
+                        },
+                        Err(error) => {
+                            println!("Error occurred while opening file: {}", error);
+                        }
+                    }
+
+                    dialog.emit_close();
+                },
+                _ => {}
+            }
+        }));
+        }
+    }
+    start_gui();
+}
+
+fn start_gui() {
     let glade_src = include_str!("sbrx_gui.glade");
     let builder: Rc<Builder> = Rc::new(Builder::new());
     builder.add_from_string(glade_src).expect("Couldn't add from string");
@@ -92,30 +144,34 @@ fn start_gui() {
     // Change character
     character_options.connect_changed(clone!(builder, character_options => move |_| {
         if let Some(text) = character_options.get_active_text() {
-            let mut e = ENGINE.clone();
-            let mut engine = e.lock().unwrap();
-            let character = data::CHARACTERS.iter().filter(|&c| c.name == text).nth(0).unwrap();
-            println!("Switching to character: {}", character.name);
+            println!("character_options start");
+            let e = ENGINE.clone();
+            println!("character_options clone");
+            let mut e_o = e.lock().unwrap();
+            println!("character_options lock.unwrap");
+            if let Some(ref mut engine) = *e_o {
+                println!("character_options>some_engine found engine");
+                let character = data::CHARACTERS.iter().filter(|&c| c.name == text).nth(0).unwrap();
+                println!("Switching to character: {}", character.name);
 
-            let palette = engine.palette_manager.load_palette_colors(character.name.to_string());
-            let image = { engine.sprite_manager.load_spritesheet(character).unwrap().to_img(&palette[..]) };
+                let palette = engine.palette_manager.load_palette_colors(character.name.to_string());
+                let image = { engine.sprite_manager.load_spritesheet(character).unwrap().to_img(&palette[..]) };
 
-            create_dir_all("/tmp/sbrx/").unwrap();
-            let file_name = format!("/tmp/sbrx/{}.png", character.name);
-            image.save(file_name.clone()).unwrap();
+                create_dir_all("/tmp/sbrx/").unwrap();
+                let file_name = format!("/tmp/sbrx/{}.png", character.name);
+                image.save(file_name.clone()).unwrap();
 
-            let character_spritesheet: gtk::Image = builder.get_object("character_spritesheet")
-                .expect("Couldn't get builder");
+                let character_spritesheet: gtk::Image = builder.get_object("character_spritesheet")
+                    .expect("Couldn't get builder");
 
-            character_spritesheet.set_from_file(file_name.clone());
+                character_spritesheet.set_from_file(file_name.clone());
+            }
         }
     }));
 
     // Upload spritesheet
     character_upload_button.connect_clicked(clone!(builder, character_options => move |_| {
         if let Some(text) = character_options.get_active_text() {
-            let mut e = ENGINE.clone();
-            let mut engine = e.lock().unwrap();
             let character = data::CHARACTERS.iter().filter(|&c| c.name == text).nth(0).unwrap();
 
             let window: gtk::ApplicationWindow = builder.get_object("application").expect("Couldn't get window");
@@ -141,37 +197,38 @@ fn start_gui() {
                     1 => {
                         println!("Opening {}", character.name);
 
-                        let mut e = ENGINE.clone();
-                        let mut engine = e.lock().unwrap();
+                        let e = ENGINE.clone();
+                        let mut e_o = e.lock().unwrap();
+                        if let Some(ref mut engine) = *e_o {
+                            let file_name = dialog.get_filename().unwrap();
+                            let dynamic_image = open(file_name.clone()).ok().expect("Couldn't open image");
+                            let mut image = match dynamic_image {
+                                ImageRgb8(mut image) => {
+                                    image
+                                }
+                                ImageRgba8(mut image) => {
+                                    let converted_image: ImageBuffer<Rgb<u8>, Vec<u8>> = image.convert();
+                                    converted_image
+                                }
+                                _ => {
+                                    panic!("Couldn't open image {:?}", file_name.clone());
+                                }
+                            };
 
-                        let file_name = dialog.get_filename().unwrap();
-                        let dynamic_image = open(file_name.clone()).ok().expect("Couldn't open image");
-                        let mut image = match dynamic_image {
-                            ImageRgb8(mut image) => {
-                                image
-                            }
-                            ImageRgba8(mut image) => {
-                                let converted_image: ImageBuffer<Rgb<u8>, Vec<u8>> = image.convert();
-                                converted_image
-                            }
-                            _ => {
-                                panic!("Couldn't open image {:?}", file_name.clone());
-                            }
-                        };
+                            let (spritesheet, palette) = manager::sprite::Spritesheet::from_img(&mut image, character).unwrap();
+                            engine.sprite_manager.spritesheets.insert(character.name.to_string(), spritesheet);
+                            engine.palette_manager.store_palette_colors(character.name.to_string(), palette);
+                            println!("Converted & stored spritesheet");
 
-                        let (spritesheet, palette) = manager::sprite::Spritesheet::from_img(&mut image, character).unwrap();
-                        engine.sprite_manager.spritesheets.insert(character.name.to_string(), spritesheet);
-                        engine.palette_manager.store_palette_colors(character.name.to_string(), palette);
-                        println!("Converted & stored spritesheet");
+                            create_dir_all("/tmp/sbrx/").unwrap();
+                            let tmp_file_name = format!("/tmp/sbrx/{}_upload_tmp.png", character.name);
+                            image.save(tmp_file_name.clone()).unwrap();
 
-                        create_dir_all("/tmp/sbrx/").unwrap();
-                        let tmp_file_name = format!("/tmp/sbrx/{}_upload_tmp.png", character.name);
-                        image.save(tmp_file_name.clone()).unwrap();
+                            let character_spritesheet: gtk::Image = builder.get_object("character_spritesheet")
+                                .expect("Couldn't get builder");
 
-                        let character_spritesheet: gtk::Image = builder.get_object("character_spritesheet")
-                            .expect("Couldn't get builder");
-
-                        character_spritesheet.set_from_file(tmp_file_name.clone());
+                            character_spritesheet.set_from_file(tmp_file_name.clone());
+                        }
 
                         dialog.emit_close();
                     },
@@ -186,88 +243,93 @@ fn start_gui() {
     // Save to file
     character_save_button.connect_clicked(clone!(builder, character_options, window => move |_| {
         if let Some(text) = character_options.get_active_text() {
-            let mut e = ENGINE.clone();
-            let mut engine = e.lock().unwrap();
-            let character = data::CHARACTERS.iter().filter(|&c| c.name == text).nth(0).unwrap();
+            let e = ENGINE.clone();
+            let mut e_o = e.lock().unwrap();
+            if let Some(ref mut engine) = *e_o {
+                let character = data::CHARACTERS.iter().filter(|&c| c.name == text).nth(0).unwrap();
 
-            let window: gtk::ApplicationWindow = builder.get_object("application").expect("Couldn't get window");
+                let window: gtk::ApplicationWindow = builder.get_object("application").expect("Couldn't get window");
 
-            let total_timer = Instant::now();
+                let total_timer = Instant::now();
 
-            let dialog = FileChooserDialog::new(
-                Some(&format!("Choose where to save the {} spritesheet", character.name)),
-                Some(&window),
-                FileChooserAction::Save
-            );
+                let dialog = FileChooserDialog::new(
+                    Some(&format!("Choose where to save the {} spritesheet", character.name)),
+                    Some(&window),
+                    FileChooserAction::Save
+                );
 
-            dialog.add_button("Cancel", 0);
-            dialog.add_button("Save", 1);
-            dialog.run();
+                dialog.add_button("Cancel", 0);
+                dialog.add_button("Save", 1);
+                dialog.run();
 
-            dialog.connect_response(clone!(builder, dialog => move |_, response_id| {
-                match response_id {
-                    0 => {
-                        println!("Cancelling {}", character.name);
-                        dialog.emit_close();
-                    },
-                    1 => {
-                        println!("Saving {}", character.name);
+                dialog.connect_response(clone!(builder, dialog => move |_, response_id| {
+                    match response_id {
+                        0 => {
+                            println!("Cancelling {}", character.name);
+                            dialog.emit_close();
+                        },
+                        1 => {
+                            println!("Saving {}", character.name);
 
-                        let mut e = ENGINE.clone();
-                        let mut engine = e.lock().unwrap();
+                            let e = ENGINE.clone();
+                            let mut e_o = e.lock().unwrap();
+                            if let Some(ref mut engine) = *e_o {
+                                let file_name = dialog.get_filename().unwrap();
 
-                        let file_name = dialog.get_filename().unwrap();
+                                let palette = engine.palette_manager.load_palette_colors(character.name.to_string());
+                                let image = { engine.sprite_manager.load_spritesheet(character).unwrap().to_img(&palette[..]) };
 
-                        let palette = engine.palette_manager.load_palette_colors(character.name.to_string());
-                        let image = { engine.sprite_manager.load_spritesheet(character).unwrap().to_img(&palette[..]) };
+                                image.save(file_name).unwrap();
+                            }
 
-                        image.save(file_name).unwrap();
+                            dialog.emit_close();
+                        },
+                        _ => {}
+                    }
+                }));
 
-                        dialog.emit_close();
-                    },
-                    _ => {}
-                }
-            }));
-
-            println!("Save character to file: {} ({:?})", character.name, total_timer.elapsed());
+                println!("Save character to file: {} ({:?})", character.name, total_timer.elapsed());
+            }
         }
     }));
 
     // Write to ROM
     character_write_button.connect_clicked(clone!(builder, character_options => move |_| {
         if let Some(text) = character_options.get_active_text() {
-            let mut e = ENGINE.clone();
-            let mut engine = e.lock().unwrap();
-            let character = data::CHARACTERS.iter().filter(|&c| c.name == text).nth(0).unwrap();
+            let e = ENGINE.clone();
+            let mut e_o = e.lock().unwrap();
+            if let Some(ref mut engine) = *e_o {
+                let character = data::CHARACTERS.iter().filter(|&c| c.name == text).nth(0).unwrap();
 
-            let total_timer = Instant::now();
-            let mut timer = Instant::now();
-            engine.palette_manager.write_palette(character).unwrap();
-            engine.sprite_manager.write_spritesheet(character).unwrap();
-            println!("Write character to rom: {} ({:?})", character.name, timer.elapsed());
+                let total_timer = Instant::now();
+                let mut timer = Instant::now();
+                engine.palette_manager.write_palette(character).unwrap();
+                engine.sprite_manager.write_spritesheet(character).unwrap();
+                println!("Write character to rom: {} ({:?})", character.name, timer.elapsed());
 
-            timer = Instant::now();
-            engine.palette_manager.read_palette(character).unwrap();
-            engine.sprite_manager.read_sprite(character).unwrap();
-            println!("Reading {} sprites & palette from ROM ({:?})", character.name, timer.elapsed());
+                timer = Instant::now();
+                engine.palette_manager.read_palette(character).unwrap();
+                engine.sprite_manager.read_sprite(character).unwrap();
+                println!("Reading {} sprites & palette from ROM ({:?})", character.name, timer.elapsed());
 
-            timer = Instant::now();
-            let palette = engine.palette_manager.load_palette_colors(character.name.to_string());
-            let image = { engine.sprite_manager.load_spritesheet(character).unwrap().to_img(&palette[..]) };
-            println!("Converting {} spritesheet to an image ({:?})", character.name, timer.elapsed());
+                timer = Instant::now();
+                let palette = engine.palette_manager.load_palette_colors(character.name.to_string());
+                let image = { engine.sprite_manager.load_spritesheet(character).unwrap().to_img(&palette[..]) };
+                println!("Converting {} spritesheet to an image ({:?})", character.name, timer.elapsed());
 
-            timer = Instant::now();
-            create_dir_all("/tmp/sbrx/").unwrap();
-            let file_name = format!("/tmp/sbrx/{}.png", character.name);
-            image.save(file_name.clone()).unwrap();
+                timer = Instant::now();
+                create_dir_all("/tmp/sbrx/").unwrap();
+                let file_name = format!("/tmp/sbrx/{}.png", character.name);
+                image.save(file_name.clone()).unwrap();
 
-            let character_spritesheet: gtk::Image = builder.get_object("character_spritesheet")
-                .expect("Couldn't get builder");
+                let character_spritesheet: gtk::Image = builder.get_object("character_spritesheet")
+                    .expect("Couldn't get builder");
 
-            character_spritesheet.set_from_file(file_name.clone());
-            println!("Updating {} spritesheet gui ({:?})", character.name, timer.elapsed());
+                character_spritesheet.set_from_file(file_name.clone());
+                println!("Updating {} spritesheet gui ({:?})", character.name, timer.elapsed());
 
-            println!("{} Write to ROM done ({:?})", character.name, total_timer.elapsed());
+                println!("{} Write to ROM done ({:?})", character.name, total_timer.elapsed());
+            }
         }
     }));
 
