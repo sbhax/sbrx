@@ -118,7 +118,6 @@
                                   <object class="GtkImage" id="character_spritesheet">
                                     <property name="visible">True</property>
                                     <property name="can_focus">False</property>
-                                    <property name="stock">gtk-missing-image</property>
                                   </object>
                                 </child>
                               </object>
