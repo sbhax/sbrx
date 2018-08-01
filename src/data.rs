@@ -7,12 +7,12 @@ pub const TAILS_BLASTER_PALETTE: i32 = 0xBF2098;
 pub const SHIELD_PALETTE: i32 = 0xBF2078;
 
 #[derive(Copy, Clone)]
-pub struct Character<'a> {
-    pub name: &'a str,
+pub struct Character {
+    pub name: &'static str,
     pub palette_offset: u64,
     pub text_offsets: (i32, i32),
     pub sprite_offset: i32,
-    pub sprite_frames: &'a [i32],
+    pub sprite_frames: &'static [i32],
 }
 
 pub const CHARACTERS: [Character; 10] = [

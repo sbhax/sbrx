@@ -29,30 +29,6 @@ const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 const WINDOW_WIDTH: u32 = gui::WINDOW_WIDTH;
 const WINDOW_HEIGHT: u32 = gui::WINDOW_HEIGHT;
 
-lazy_static! {
-    static ref ENGINE: Arc<Mutex<Option<engine::Engine>>> = {
-        if env::args().len() > 1 {
-            let file_name = env::args().nth(1).unwrap();
-            let file_result = OpenOptions::new()
-                .read(true)
-                .write(true)
-                .open(file_name);
-            match file_result {
-                Ok(file) => {
-                    Arc::new(Mutex::new(Some(engine::Engine::new(Arc::new(Mutex::new(file))))))
-                },
-                Err(error) => {
-                    println!("Error occurred while opening file: {}", error);
-                    Arc::new(Mutex::new(None))
-                }
-            }
-        } else {
-            println!("No file specified!");
-            Arc::new(Mutex::new(None))
-        }
-    };
-}
-
 pub fn main() {
     let mut events_loop = glium::glutin::EventsLoop::new();
 
@@ -82,7 +58,6 @@ pub fn main() {
 
         let font = Font::from_bytes(include_bytes!("assets/NotoSans-Regular.ttf").to_vec()).unwrap();
         ui.fonts.insert(font);
-
 
         let engine: Option<engine::Engine> = if env::args().len() > 1 {
             let file_name = env::args().nth(1).unwrap();
@@ -179,14 +154,7 @@ pub fn main() {
             match event {
                 glium::glutin::Event::WindowEvent { event, .. } => match event {
                     // Break from the loop upon `Escape`.
-                    glium::glutin::WindowEvent::CloseRequested |
-                    glium::glutin::WindowEvent::KeyboardInput {
-                        input: glium::glutin::KeyboardInput {
-                            virtual_keycode: Some(glium::glutin::VirtualKeyCode::Escape),
-                            ..
-                        },
-                        ..
-                    } => {
+                    glium::glutin::WindowEvent::CloseRequested => {
                         closed = true;
                         return glium::glutin::ControlFlow::Break;
                     }

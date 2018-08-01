@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 extern crate nfd;
 
 use conrod;
@@ -14,6 +12,7 @@ pub const WINDOW_HEIGHT: u32 = 600;
 
 pub struct GuiState {
     chosen_file: String,
+    selected_character: Option<data::Character>,
     engine: Option<Engine>,
 }
 
@@ -21,6 +20,7 @@ impl GuiState {
     pub fn new(engine: Option<Engine>) -> Self {
         GuiState {
             engine,
+            selected_character: None,
             chosen_file: "no ROM open".to_string(),
         }
     }
@@ -59,6 +59,10 @@ widget_ids! {
 
         file_chooser_button,
         file_chooser_text,
+
+        spritesheet_upload,
+        spritesheet_save,
+        spritesheet_write,
     }
 }
 
@@ -126,6 +130,41 @@ pub fn gui(ui: &mut conrod::UiCell, ids: &Ids, app: &mut GuiState) {
         .down(5.0)
         .align_right()
         .set(ids.file_chooser_text, ui);
+
+    //
+    // Spritesheets
+    //
+
+    for _press in widget::Button::new()
+        .label("Upload Spritesheet")
+        .small_font(ui)
+        .bottom_left_of(ids.subtitle)
+        .down(100.0)
+        .w_h(115.0, 35.0)
+        .set(ids.spritesheet_upload, ui)
+        {
+            println!("Upload Spritesheet");
+        }
+
+    for _press in widget::Button::new()
+        .label("Save Spritesheet to File")
+        .small_font(ui)
+        .down(20.0)
+        .w_h(140.0, 35.0)
+        .set(ids.spritesheet_save, ui)
+        {
+            println!("Save Spritesheet to File");
+        }
+
+    for _press in widget::Button::new()
+        .label("Write Spritesheet to ROM")
+        .small_font(ui)
+        .down(20.0)
+        .w_h(150.0, 35.0)
+        .set(ids.spritesheet_write, ui)
+        {
+            println!("Write Spritesheet to ROM");
+        }
 
     widget::Scrollbar::y_axis(ids.canvas).auto_hide(true).set(ids.canvas_scrollbar, ui);
 }
