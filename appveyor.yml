@@ -1,4 +1,4 @@
-version: 0.1.{build}
+version: 0.1.0-{build}
 
 environment:
   matrix:
@@ -15,7 +15,6 @@ install:
   - SET PATH=C:\Users\appveyor\.cargo\bin;C:\msys64\mingw%BITS%\bin;%PATH%;C:\msys64\usr\bin
   - rustc -Vv
   - cargo -Vv
-  - pacman --noconfirm -S mingw-w64-%ARCH%-gtk3
 
 build_script:
   - cargo build --release

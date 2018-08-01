@@ -1,10 +1,12 @@
 #[macro_use]
 extern crate lazy_static;
-extern crate gtk;
+#[macro_use]
+extern crate conrod;
 extern crate image;
 
-use gtk::prelude::*;
-use gtk::*;
+use conrod::backend::glium::glium;
+use conrod::backend::glium::glium::Surface;
+use conrod::text::Font;
 
 use std::fs::{File, OpenOptions, create_dir_all};
 use std::io::Read;
@@ -15,12 +17,15 @@ use std::rc::Rc;
 use std::time::Instant;
 use self::image::{open, ImageBuffer, Rgb, DynamicImage, ImageRgb8, ImageRgba8, ConvertBuffer};
 
+mod gui;
 mod data;
 mod color;
 mod engine;
 mod manager;
 
 const VERSION: &'static str = env!("CARGO_PKG_VERSION");
+const WINDOW_WIDTH: u32 = gui::WINDOW_WIDTH;
+const WINDOW_HEIGHT: u32 = gui::WINDOW_HEIGHT;
 
 lazy_static! {
     static ref ENGINE: Arc<Mutex<Option<engine::Engine>>> = {
@@ -46,298 +51,138 @@ lazy_static! {
     };
 }
 
-// make moving clones into closures more convenient
-// stolen from gtk examples
-macro_rules! clone {
-    (@param _) => ( _ );
-    (@param $x:ident) => ( $x );
-    ($($n:ident),+ => move || $body:expr) => (
-        {
-            $( let $n = $n.clone(); )+
-            move || $body
-        }
-    );
-    ($($n:ident),+ => move |$($p:tt),+| $body:expr) => (
-        {
-            $( let $n = $n.clone(); )+
-            move |$(clone!(@param $p),)+| $body
-        }
-    );
-}
+pub fn main() {
+    let mut events_loop = glium::glutin::EventsLoop::new();
 
-fn main() {
-    gtk::init().unwrap();
-    { // scope needed to drop lock
-        let e = ENGINE.clone();
-        let mut e_o = e.lock().unwrap();
-        if let Some(ref mut engine) = *e_o {
-            engine.start().unwrap();
-        } else {
-            // ask for a file
-            let dialog = FileChooserDialog::new::<gtk::ApplicationWindow>(
-                Some(&format!("Choose a ROM to open")),
-                None,
-                FileChooserAction::Open,
-            );
+    let window = glium::glutin::WindowBuilder::new()
+        .with_title(format!("sbrx v{}", VERSION))
+        .with_dimensions((WINDOW_WIDTH, WINDOW_HEIGHT).into());
 
-            dialog.add_button("Cancel", 0);
-            dialog.add_button("Open", 1);
-            dialog.run();
+    let context = glium::glutin::ContextBuilder::new()
+        .with_vsync(true)
+        .with_multisampling(4);
 
-            dialog.connect_response(clone!(dialog => move |_, response_id| {
-            match response_id {
-                0 => {
-                    println!("Closing file chooser");
-                    dialog.emit_close();
-                },
-                1 => {
-                    println!("Opening ROM");
+    let display = glium::Display::new(window, context, &events_loop).unwrap();
+    let mut renderer = conrod::backend::glium::Renderer::new(&display).unwrap();
 
-                    let file_name = dialog.get_filename().unwrap();
+    let mut image_map = conrod::image::Map::new();
 
-                    let file_result = OpenOptions::new()
-                                    .read(true)
-                                    .write(true)
-                                    .open(file_name);
-                    match file_result {
-                        Ok(file) => {
-                            let mut e = ENGINE.clone();
-                            let mut engine = engine::Engine::new(Arc::new(Mutex::new(file)));
-                            engine.start().unwrap();
-                            *e.lock().unwrap() = Some(engine);
-                        },
-                        Err(error) => {
-                            println!("Error occurred while opening file: {}", error);
-                        }
-                    }
+    let (event_tx, event_rx) = std::sync::mpsc::channel();
+    let (render_tx, render_rx) = std::sync::mpsc::channel();
+    let events_loop_proxy = events_loop.create_proxy();
 
-                    dialog.emit_close();
-                },
-                _ => {}
+    fn run_conrod(
+        event_rx: std::sync::mpsc::Receiver<conrod::event::Input>,
+        render_tx: std::sync::mpsc::Sender<conrod::render::OwnedPrimitives>,
+        events_loop_proxy: glium::glutin::EventsLoopProxy)
+    {
+        let mut ui = conrod::UiBuilder::new([WINDOW_WIDTH as f64, WINDOW_HEIGHT as f64]).theme(gui::theme()).build();
+
+        let font = Font::from_bytes(include_bytes!("assets/NotoSans-Regular.ttf").to_vec()).unwrap();
+        ui.fonts.insert(font);
+
+        let mut app = gui::GuiState::new();
+
+        let ids = gui::Ids::new(ui.widget_id_generator());
+
+        let mut needs_update = true;
+        'conrod: loop {
+
+            let mut events = Vec::new();
+            while let Ok(event) = event_rx.try_recv() {
+                events.push(event);
             }
-        }));
-        }
-    }
-    start_gui();
-}
 
-fn start_gui() {
-    let glade_src = include_str!("sbrx_gui.glade");
-    let builder: Rc<Builder> = Rc::new(Builder::new());
-    builder.add_from_string(glade_src).expect("Couldn't add from string");
-
-    let window: gtk::ApplicationWindow = builder.get_object("application").expect("Couldn't get window");
-    window.set_title(&format!("sbrx v{}", VERSION));
-
-    let character_options: Rc<gtk::ComboBoxText> = Rc::new(builder.get_object("character_options").expect("Couldn't get builder"));
-
-    let character_upload_button: gtk::Button = builder.get_object("character_upload_file").expect("Couldn't get builder");
-    let character_save_button: gtk::Button = builder.get_object("character_save_to_file").expect("Couldn't get builder");
-    let character_write_button: gtk::Button = builder.get_object("character_write_to_rom").expect("Couldn't get builder");
-
-    character_options.remove_all();
-
-    for character in data::CHARACTERS.iter() {
-        character_options.append(Some(character.name), character.name);
-    }
-
-    // Change character
-    character_options.connect_changed(clone!(builder, character_options => move |_| {
-        if let Some(text) = character_options.get_active_text() {
-            println!("character_options start");
-            let e = ENGINE.clone();
-            println!("character_options clone");
-            let mut e_o = e.lock().unwrap();
-            println!("character_options lock.unwrap");
-            if let Some(ref mut engine) = *e_o {
-                println!("character_options>some_engine found engine");
-                let character = data::CHARACTERS.iter().filter(|&c| c.name == text).nth(0).unwrap();
-                println!("Switching to character: {}", character.name);
-
-                let palette = engine.palette_manager.load_palette_colors(character.name.to_string());
-                let image = { engine.sprite_manager.load_spritesheet(character).unwrap().to_img(&palette[..]) };
-
-                create_dir_all("/tmp/sbrx/").unwrap();
-                let file_name = format!("/tmp/sbrx/{}.png", character.name);
-                image.save(file_name.clone()).unwrap();
-
-                let character_spritesheet: gtk::Image = builder.get_object("character_spritesheet")
-                    .expect("Couldn't get builder");
-
-                character_spritesheet.set_from_file(file_name.clone());
+            if events.is_empty() || !needs_update {
+                match event_rx.recv() {
+                    Ok(event) => events.push(event),
+                    Err(_) => break 'conrod,
+                };
             }
-        }
-    }));
 
-    // Upload spritesheet
-    character_upload_button.connect_clicked(clone!(builder, character_options => move |_| {
-        if let Some(text) = character_options.get_active_text() {
-            let character = data::CHARACTERS.iter().filter(|&c| c.name == text).nth(0).unwrap();
+            needs_update = false;
 
-            let window: gtk::ApplicationWindow = builder.get_object("application").expect("Couldn't get window");
+            for event in events {
+                ui.handle_event(event);
+                needs_update = true;
+            }
 
-            let total_timer = Instant::now();
+            gui::gui(&mut ui.set_widgets(), &ids, &mut app);
 
-            let dialog = FileChooserDialog::new(
-                Some(&format!("Choose a spritesheet to open for {}", character.name)),
-                Some(&window),
-                FileChooserAction::Open
-            );
-
-            dialog.add_button("Cancel", 0);
-            dialog.add_button("Open", 1);
-            dialog.run();
-
-            dialog.connect_response(clone!(builder, dialog => move |_, response_id| {
-                match response_id {
-                    0 => {
-                        println!("Cancelling {}", character.name);
-                        dialog.emit_close();
-                    },
-                    1 => {
-                        println!("Opening {}", character.name);
-
-                        let e = ENGINE.clone();
-                        let mut e_o = e.lock().unwrap();
-                        if let Some(ref mut engine) = *e_o {
-                            let file_name = dialog.get_filename().unwrap();
-                            let dynamic_image = open(file_name.clone()).ok().expect("Couldn't open image");
-                            let mut image = match dynamic_image {
-                                ImageRgb8(mut image) => {
-                                    image
-                                }
-                                ImageRgba8(mut image) => {
-                                    let converted_image: ImageBuffer<Rgb<u8>, Vec<u8>> = image.convert();
-                                    converted_image
-                                }
-                                _ => {
-                                    panic!("Couldn't open image {:?}", file_name.clone());
-                                }
-                            };
-
-                            let (spritesheet, palette) = manager::sprite::Spritesheet::from_img(&mut image, character).unwrap();
-                            engine.sprite_manager.spritesheets.insert(character.name.to_string(), spritesheet);
-                            engine.palette_manager.store_palette_colors(character.name.to_string(), palette);
-                            println!("Converted & stored spritesheet");
-
-                            create_dir_all("/tmp/sbrx/").unwrap();
-                            let tmp_file_name = format!("/tmp/sbrx/{}_upload_tmp.png", character.name);
-                            image.save(tmp_file_name.clone()).unwrap();
-
-                            let character_spritesheet: gtk::Image = builder.get_object("character_spritesheet")
-                                .expect("Couldn't get builder");
-
-                            character_spritesheet.set_from_file(tmp_file_name.clone());
-                        }
-
-                        dialog.emit_close();
-                    },
-                    _ => {}
+            if let Some(primitives) = ui.draw_if_changed() {
+                if render_tx.send(primitives.owned()).is_err()
+                    || events_loop_proxy.wakeup().is_err() {
+                    break 'conrod;
                 }
-            }));
-
-            println!("Upload image to character: {} ({:?})", character.name, total_timer.elapsed());
+            }
         }
-    }));
+    }
 
-    // Save to file
-    character_save_button.connect_clicked(clone!(builder, character_options, window => move |_| {
-        if let Some(text) = character_options.get_active_text() {
-            let e = ENGINE.clone();
-            let mut e_o = e.lock().unwrap();
-            if let Some(ref mut engine) = *e_o {
-                let character = data::CHARACTERS.iter().filter(|&c| c.name == text).nth(0).unwrap();
+    fn draw(display: &glium::Display,
+            renderer: &mut conrod::backend::glium::Renderer,
+            image_map: &conrod::image::Map<glium::Texture2d>,
+            primitives: &conrod::render::OwnedPrimitives)
+    {
+        renderer.fill(display, primitives.walk(), &image_map);
+        let mut target = display.draw();
+        target.clear_color(0.0, 0.0, 0.0, 1.0);
+        renderer.draw(display, &mut target, &image_map).unwrap();
+        target.finish().unwrap();
+    }
 
-                let window: gtk::ApplicationWindow = builder.get_object("application").expect("Couldn't get window");
+    std::thread::spawn(move || run_conrod(event_rx, render_tx, events_loop_proxy));
 
-                let total_timer = Instant::now();
+    let mut last_update = std::time::Instant::now();
+    let mut closed = false;
+    while !closed {
+        // 60 fps
+        let sixteen_ms = std::time::Duration::from_millis(16);
+        let now = std::time::Instant::now();
+        let duration_since_last_update = now.duration_since(last_update);
+        if duration_since_last_update < sixteen_ms {
+            std::thread::sleep(sixteen_ms - duration_since_last_update);
+        }
 
-                let dialog = FileChooserDialog::new(
-                    Some(&format!("Choose where to save the {} spritesheet", character.name)),
-                    Some(&window),
-                    FileChooserAction::Save
-                );
+        events_loop.run_forever(|event| {
+            // convert winit event to conrod event
+            if let Some(event) = conrod::backend::winit::convert_event(event.clone(), &display) {
+                event_tx.send(event).unwrap();
+            }
 
-                dialog.add_button("Cancel", 0);
-                dialog.add_button("Save", 1);
-                dialog.run();
-
-                dialog.connect_response(clone!(builder, dialog => move |_, response_id| {
-                    match response_id {
-                        0 => {
-                            println!("Cancelling {}", character.name);
-                            dialog.emit_close();
+            match event {
+                glium::glutin::Event::WindowEvent { event, .. } => match event {
+                    // Break from the loop upon `Escape`.
+                    glium::glutin::WindowEvent::CloseRequested |
+                    glium::glutin::WindowEvent::KeyboardInput {
+                        input: glium::glutin::KeyboardInput {
+                            virtual_keycode: Some(glium::glutin::VirtualKeyCode::Escape),
+                            ..
                         },
-                        1 => {
-                            println!("Saving {}", character.name);
-
-                            let e = ENGINE.clone();
-                            let mut e_o = e.lock().unwrap();
-                            if let Some(ref mut engine) = *e_o {
-                                let file_name = dialog.get_filename().unwrap();
-
-                                let palette = engine.palette_manager.load_palette_colors(character.name.to_string());
-                                let image = { engine.sprite_manager.load_spritesheet(character).unwrap().to_img(&palette[..]) };
-
-                                image.save(file_name).unwrap();
-                            }
-
-                            dialog.emit_close();
-                        },
-                        _ => {}
+                        ..
+                    } => {
+                        closed = true;
+                        return glium::glutin::ControlFlow::Break;
                     }
-                }));
 
-                println!("Save character to file: {} ({:?})", character.name, total_timer.elapsed());
+                    glium::glutin::WindowEvent::Resized(..) => {
+                        if let Some(primitives) = render_rx.iter().next() {
+                            draw(&display, &mut renderer, &image_map, &primitives);
+                        }
+                    }
+                    _ => {}
+                },
+                glium::glutin::Event::Awakened => return glium::glutin::ControlFlow::Break,
+                _ => (),
             }
+
+            glium::glutin::ControlFlow::Continue
+        });
+
+        if let Some(primitives) = render_rx.try_iter().last() {
+            draw(&display, &mut renderer, &image_map, &primitives);
         }
-    }));
 
-    // Write to ROM
-    character_write_button.connect_clicked(clone!(builder, character_options => move |_| {
-        if let Some(text) = character_options.get_active_text() {
-            let e = ENGINE.clone();
-            let mut e_o = e.lock().unwrap();
-            if let Some(ref mut engine) = *e_o {
-                let character = data::CHARACTERS.iter().filter(|&c| c.name == text).nth(0).unwrap();
-
-                let total_timer = Instant::now();
-                let mut timer = Instant::now();
-                engine.palette_manager.write_palette(character).unwrap();
-                engine.sprite_manager.write_spritesheet(character).unwrap();
-                println!("Write character to rom: {} ({:?})", character.name, timer.elapsed());
-
-                timer = Instant::now();
-                engine.palette_manager.read_palette(character).unwrap();
-                engine.sprite_manager.read_sprite(character).unwrap();
-                println!("Reading {} sprites & palette from ROM ({:?})", character.name, timer.elapsed());
-
-                timer = Instant::now();
-                let palette = engine.palette_manager.load_palette_colors(character.name.to_string());
-                let image = { engine.sprite_manager.load_spritesheet(character).unwrap().to_img(&palette[..]) };
-                println!("Converting {} spritesheet to an image ({:?})", character.name, timer.elapsed());
-
-                timer = Instant::now();
-                create_dir_all("/tmp/sbrx/").unwrap();
-                let file_name = format!("/tmp/sbrx/{}.png", character.name);
-                image.save(file_name.clone()).unwrap();
-
-                let character_spritesheet: gtk::Image = builder.get_object("character_spritesheet")
-                    .expect("Couldn't get builder");
-
-                character_spritesheet.set_from_file(file_name.clone());
-                println!("Updating {} spritesheet gui ({:?})", character.name, timer.elapsed());
-
-                println!("{} Write to ROM done ({:?})", character.name, total_timer.elapsed());
-            }
-        }
-    }));
-
-    window.show_all();
-
-    window.connect_delete_event(|_, _| {
-        gtk::main_quit();
-        Inhibit(false)
-    });
-    gtk::main();
+        last_update = std::time::Instant::now();
+    }
 }
+
