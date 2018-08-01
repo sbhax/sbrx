@@ -4,7 +4,8 @@ extern crate nfd;
 
 use conrod;
 use self::nfd::Response;
-use std;
+use self::engine::*;
+use std::sync::{Arc, Mutex};
 
 use self::super::*;
 
@@ -13,11 +14,13 @@ pub const WINDOW_HEIGHT: u32 = 600;
 
 pub struct GuiState {
     chosen_file: String,
+    engine: Option<Engine>,
 }
 
 impl GuiState {
-    pub fn new() -> Self {
+    pub fn new(engine: Option<Engine>) -> Self {
         GuiState {
+            engine,
             chosen_file: "no ROM open".to_string(),
         }
     }
@@ -93,9 +96,24 @@ pub fn gui(ui: &mut conrod::UiCell, ids: &Ids, app: &mut GuiState) {
                 panic!(e);
             });
             match result {
-                Response::Okay(file_path) => {
-                    println!("File path = {:?}", file_path);
-                    app.chosen_file = file_path;
+                Response::Okay(file_name) => {
+                    println!("File path = {:?}", file_name);
+                    app.chosen_file = file_name.clone();
+                    let file_result = OpenOptions::new()
+                        .read(true)
+                        .write(true)
+                        .open(file_name);
+                    match file_result {
+                        Ok(file) => {
+                            let mut engine = engine::Engine::new(Arc::new(Mutex::new(file)));
+                            if let Ok(_) = engine.start() {
+                                app.engine = Some(engine);
+                            }
+                        }
+                        Err(error) => {
+                            println!("Error occurred while opening file: {}", error);
+                        }
+                    }
                 }
                 Response::Cancel => println!("User canceled"),
                 _ => (),

@@ -1,5 +1,12 @@
 language: rust
 
+notifications:
+  email: false
+
+os:
+  - linux
+  - osx
+
 rust:
 - stable
 

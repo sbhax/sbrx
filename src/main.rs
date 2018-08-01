@@ -1,3 +1,5 @@
+#![windows_subsystem = "windows"]
+
 #[macro_use]
 extern crate lazy_static;
 #[macro_use]
@@ -81,13 +83,38 @@ pub fn main() {
         let font = Font::from_bytes(include_bytes!("assets/NotoSans-Regular.ttf").to_vec()).unwrap();
         ui.fonts.insert(font);
 
-        let mut app = gui::GuiState::new();
+
+        let engine: Option<engine::Engine> = if env::args().len() > 1 {
+            let file_name = env::args().nth(1).unwrap();
+            let file_result = OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(file_name);
+            match file_result {
+                Ok(file) => {
+                    let mut engine = engine::Engine::new(Arc::new(Mutex::new(file)));
+                    if let Ok(_) = engine.start() {
+                        Some(engine)
+                    } else {
+                        None
+                    }
+                }
+                Err(error) => {
+                    println!("Error occurred while opening file: {}", error);
+                    None
+                }
+            }
+        } else {
+            println!("No file specified!");
+            None
+        };
+
+        let mut app = gui::GuiState::new(engine);
 
         let ids = gui::Ids::new(ui.widget_id_generator());
 
         let mut needs_update = true;
         'conrod: loop {
-
             let mut events = Vec::new();
             while let Ok(event) = event_rx.try_recv() {
                 events.push(event);
