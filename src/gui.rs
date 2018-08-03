@@ -4,15 +4,17 @@ use conrod;
 use self::nfd::Response;
 use self::engine::*;
 use std::sync::{Arc, Mutex};
+use image::open;
 
 use self::super::*;
+use self::super::data::*;
 
 pub const WINDOW_WIDTH: u32 = 800;
 pub const WINDOW_HEIGHT: u32 = 600;
 
 pub struct GuiState {
     chosen_file: String,
-    selected_character: Option<data::Character>,
+    selected_character_index: Option<usize>,
     engine: Option<Engine>,
 }
 
@@ -20,8 +22,16 @@ impl GuiState {
     pub fn new(engine: Option<Engine>) -> Self {
         GuiState {
             engine,
-            selected_character: None,
+            selected_character_index: Some(0),
             chosen_file: "no ROM open".to_string(),
+        }
+    }
+
+    pub fn get_character(&self) -> Option<Character> {
+        if let Some(index) = self.selected_character_index {
+            Some(CHARACTERS[index])
+        } else {
+            None
         }
     }
 }
@@ -60,6 +70,7 @@ widget_ids! {
         file_chooser_button,
         file_chooser_text,
 
+        character_dropdown,
         spritesheet_upload,
         spritesheet_save,
         spritesheet_write,
@@ -135,15 +146,65 @@ pub fn gui(ui: &mut conrod::UiCell, ids: &Ids, app: &mut GuiState) {
     // Spritesheets
     //
 
+    for selected_index in widget::DropDownList::new(CHARACTERS.iter().map(|c| c.name).collect::<Vec<&str>>().as_slice(), app.selected_character_index)
+        .small_font(ui)
+        .bottom_left_of(ids.subtitle)
+        .down(50.0)
+        .w_h(60.0, 30.0)
+        .set(ids.character_dropdown, ui)
+        {
+            // Change character
+            app.selected_character_index = Some(selected_index);
+            if let Some(ref mut engine) = app.engine {
+                println!("Loading character data");
+                let character = CHARACTERS[selected_index];
+                let palette = engine.palette_manager.load_palette_colors(character.name.to_string());
+                let image = { engine.sprite_manager.load_spritesheet(&character).unwrap().to_img(&palette[..]) };
+            }
+        }
+
     for _press in widget::Button::new()
         .label("Upload Spritesheet")
         .small_font(ui)
         .bottom_left_of(ids.subtitle)
-        .down(100.0)
+        .down(20.0)
         .w_h(115.0, 35.0)
         .set(ids.spritesheet_upload, ui)
         {
             println!("Upload Spritesheet");
+            if let Some(character) = app.get_character() {
+                if let Some(ref mut engine) = app.engine {
+                    let result = nfd::dialog().filter("png").open().unwrap_or_else(|e| {
+                        panic!(e);
+                    });
+                    match result {
+                        Response::Okay(file_name) => {
+                            println!("File path = {:?}", file_name);
+                            app.chosen_file = file_name.clone();
+                            let dynamic_image = open(file_name.clone()).ok().expect("Couldn't open image");
+                            let mut image = match dynamic_image {
+                                ImageRgb8(mut image) => {
+                                    image
+                                }
+                                ImageRgba8(mut image) => {
+                                    let converted_image: ImageBuffer<Rgb<u8>, Vec<u8>> = image.convert();
+                                    converted_image
+                                }
+                                _ => {
+                                    panic!("Couldn't open image {:?}", file_name.clone());
+                                }
+                            };
+
+                            let (spritesheet, palette) = manager::sprite::Spritesheet::from_img(&mut image, &character).unwrap();
+                            engine.sprite_manager.spritesheets.insert(character.name.to_string(), spritesheet);
+                            engine.palette_manager.store_palette_colors(character.name.to_string(), palette);
+                            println!("Converted & stored spritesheet");
+                        }
+                        Response::Cancel => println!("User canceled"),
+                        _ => (),
+                    }
+                }
+            }
         }
 
     for _press in widget::Button::new()
@@ -154,6 +215,9 @@ pub fn gui(ui: &mut conrod::UiCell, ids: &Ids, app: &mut GuiState) {
         .set(ids.spritesheet_save, ui)
         {
             println!("Save Spritesheet to File");
+            if let Some(character) = app.get_character() {
+                if let Some(ref mut engine) = app.engine {}
+            }
         }
 
     for _press in widget::Button::new()
@@ -164,6 +228,9 @@ pub fn gui(ui: &mut conrod::UiCell, ids: &Ids, app: &mut GuiState) {
         .set(ids.spritesheet_write, ui)
         {
             println!("Write Spritesheet to ROM");
+            if let Some(character) = app.get_character() {
+                if let Some(ref mut engine) = app.engine {}
+            }
         }
 
     widget::Scrollbar::y_axis(ids.canvas).auto_hide(true).set(ids.canvas_scrollbar, ui);
