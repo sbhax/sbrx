@@ -5,6 +5,7 @@ use self::nfd::Response;
 use self::engine::*;
 use std::sync::{Arc, Mutex};
 use image::open;
+use glium;
 
 use self::super::*;
 use self::super::data::*;
@@ -16,14 +17,16 @@ pub struct GuiState {
     chosen_file: String,
     selected_character_index: Option<usize>,
     engine: Option<Engine>,
+    spritesheet: Option<conrod::image::Id>,
 }
 
 impl GuiState {
     pub fn new(engine: Option<Engine>) -> Self {
         GuiState {
             engine,
-            selected_character_index: Some(0),
+            selected_character_index: None,
             chosen_file: "no ROM open".to_string(),
+            spritesheet: None,
         }
     }
 
@@ -33,6 +36,14 @@ impl GuiState {
         } else {
             None
         }
+    }
+
+    pub fn insert_image(&mut self, display: &glium::Display, image_map: &mut conrod::image::Map<glium::texture::Texture2d>, image: ImageBuffer<Rgb<u8>, Vec<u8>>) {
+        let rgba = image::ImageRgb8(image).to_rgba();
+        let dimensions = rgba.dimensions();
+        let raw_image = glium::texture::RawImage2d::from_raw_rgba_reversed(&rgba.into_raw(), dimensions);
+        let texture = glium::texture::Texture2d::new(display, raw_image).unwrap();
+        self.spritesheet = Some(image_map.insert(texture))
     }
 }
 
@@ -74,10 +85,11 @@ widget_ids! {
         spritesheet_upload,
         spritesheet_save,
         spritesheet_write,
+        spritesheet,
     }
 }
 
-pub fn gui(ui: &mut conrod::UiCell, ids: &Ids, app: &mut GuiState) {
+pub fn gui(display: &glium::Display, image_map: &mut conrod::image::Map<glium::texture::Texture2d>, ui: &mut conrod::UiCell, ids: &Ids, app: &mut GuiState) {
     use conrod::{widget, Colorable, Labelable, Positionable, Sizeable, Widget};
     use std::iter::once;
 
@@ -104,7 +116,7 @@ pub fn gui(ui: &mut conrod::UiCell, ids: &Ids, app: &mut GuiState) {
         .label("Open ROM")
         .small_font(ui)
         .top_right_of(ids.canvas)
-        .w_h(70.0, 35.0)
+        .w_h(70.0, 25.0)
         .set(ids.file_chooser_button, ui)
         {
             let result = nfd::dialog().filter("gba").open().unwrap_or_else(|e| {
@@ -123,6 +135,7 @@ pub fn gui(ui: &mut conrod::UiCell, ids: &Ids, app: &mut GuiState) {
                             let mut engine = engine::Engine::new(Arc::new(Mutex::new(file)));
                             if let Ok(_) = engine.start() {
                                 app.engine = Some(engine);
+                                app.selected_character_index = None;
                             }
                         }
                         Err(error) => {
@@ -150,16 +163,23 @@ pub fn gui(ui: &mut conrod::UiCell, ids: &Ids, app: &mut GuiState) {
         .small_font(ui)
         .bottom_left_of(ids.subtitle)
         .down(50.0)
-        .w_h(60.0, 30.0)
+        .w_h(60.0, 25.0)
         .set(ids.character_dropdown, ui)
         {
             // Change character
             app.selected_character_index = Some(selected_index);
-            if let Some(ref mut engine) = app.engine {
+
+            let o_image = (if let Some(ref mut engine) = app.engine {
                 println!("Loading character data");
                 let character = CHARACTERS[selected_index];
                 let palette = engine.palette_manager.load_palette_colors(character.name.to_string());
-                let image = { engine.sprite_manager.load_spritesheet(&character).unwrap().to_img(&palette[..]) };
+                Some(engine.sprite_manager.load_spritesheet(&character).unwrap().to_img(&palette[..]))
+            } else {
+                None
+            });
+
+            if let Some(image) = o_image {
+                app.insert_image(display, image_map, image);
             }
         }
 
@@ -168,7 +188,7 @@ pub fn gui(ui: &mut conrod::UiCell, ids: &Ids, app: &mut GuiState) {
         .small_font(ui)
         .bottom_left_of(ids.subtitle)
         .down(20.0)
-        .w_h(115.0, 35.0)
+        .w_h(115.0, 25.0)
         .set(ids.spritesheet_upload, ui)
         {
             println!("Upload Spritesheet");
@@ -211,12 +231,32 @@ pub fn gui(ui: &mut conrod::UiCell, ids: &Ids, app: &mut GuiState) {
         .label("Save Spritesheet to File")
         .small_font(ui)
         .down(20.0)
-        .w_h(140.0, 35.0)
+        .w_h(140.0, 25.0)
         .set(ids.spritesheet_save, ui)
         {
             println!("Save Spritesheet to File");
             if let Some(character) = app.get_character() {
-                if let Some(ref mut engine) = app.engine {}
+                if let Some(ref mut engine) = app.engine {
+                    let palette = engine.palette_manager.load_palette_colors(character.name.to_string());
+                    let image = { engine.sprite_manager.load_spritesheet(&character).unwrap().to_img(&palette[..]) };
+
+                    let result = nfd::dialog_save().filter("png").open().unwrap_or_else(|e| {
+                        panic!(e);
+                    });
+
+                    match result {
+                        Response::Okay(file_name) => {
+                            let file = if file_name.ends_with(".png") {
+                                file_name
+                            } else {
+                                format!("{}.png", file_name)
+                            };
+                            image.save(file).unwrap();
+                        }
+                        Response::Cancel => println!("User canceled"),
+                        _ => (),
+                    }
+                }
             }
         }
 
@@ -224,14 +264,96 @@ pub fn gui(ui: &mut conrod::UiCell, ids: &Ids, app: &mut GuiState) {
         .label("Write Spritesheet to ROM")
         .small_font(ui)
         .down(20.0)
-        .w_h(150.0, 35.0)
+        .w_h(150.0, 25.0)
         .set(ids.spritesheet_write, ui)
         {
             println!("Write Spritesheet to ROM");
             if let Some(character) = app.get_character() {
-                if let Some(ref mut engine) = app.engine {}
+                if let Some(image) = if let Some(ref mut engine) = app.engine {
+                    let total_timer = Instant::now();
+                    let mut timer = Instant::now();
+                    engine.palette_manager.write_palette(&character).unwrap();
+                    engine.sprite_manager.write_spritesheet(&character).unwrap();
+                    println!("Write character to rom: {} ({:?})", character.name, timer.elapsed());
+
+                    timer = Instant::now();
+                    engine.palette_manager.read_palette(&character).unwrap();
+                    engine.sprite_manager.read_sprite(&character).unwrap();
+                    println!("Reading {} sprites & palette from ROM ({:?})", character.name, timer.elapsed());
+
+                    timer = Instant::now();
+                    let palette = engine.palette_manager.load_palette_colors(character.name.to_string());
+                    let image = { engine.sprite_manager.load_spritesheet(&character).unwrap().to_img(&palette[..]) };
+                    println!("Converting {} spritesheet to an image ({:?})", character.name, timer.elapsed());
+                    Some(image)
+                } else { None } {
+                    // update display
+                    app.insert_image(display, image_map, image);
+                }
             }
         }
 
+    if let Some(ref image) = app.spritesheet {
+        widget::Image::new(*image)
+//            .w_h(400.0,60.0)
+            .middle()
+            .w_h(800.0, 400.0)
+            .down(40.0)
+            .set(ids.spritesheet, ui);
+    }
+
     widget::Scrollbar::y_axis(ids.canvas).auto_hide(true).set(ids.canvas_scrollbar, ui);
+}
+
+pub struct EventLoop {
+    ui_needs_update: bool,
+    last_update: std::time::Instant,
+}
+
+// taken from the conrod examples
+impl EventLoop {
+    pub fn new() -> Self {
+        EventLoop {
+            last_update: std::time::Instant::now(),
+            ui_needs_update: true,
+        }
+    }
+
+    /// Produce an iterator yielding all available events.
+    pub fn next(&mut self, events_loop: &mut glium::glutin::EventsLoop) -> Vec<glium::glutin::Event> {
+        // We don't want to loop any faster than 60 FPS, so wait until it has been at least 16ms
+        // since the last yield.
+        let last_update = self.last_update;
+        let sixteen_ms = std::time::Duration::from_millis(16);
+        let duration_since_last_update = std::time::Instant::now().duration_since(last_update);
+        if duration_since_last_update < sixteen_ms {
+            std::thread::sleep(sixteen_ms - duration_since_last_update);
+        }
+
+        // Collect all pending events.
+        let mut events = Vec::new();
+        events_loop.poll_events(|event| events.push(event));
+
+        // If there are no events and the `Ui` does not need updating, wait for the next event.
+        if events.is_empty() && !self.ui_needs_update {
+            events_loop.run_forever(|event| {
+                events.push(event);
+                glium::glutin::ControlFlow::Break
+            });
+        }
+
+        self.ui_needs_update = false;
+        self.last_update = std::time::Instant::now();
+
+        events
+    }
+
+    /// Notifies the event loop that the `Ui` requires another update whether or not there are any
+    /// pending events.
+    ///
+    /// This is primarily used on the occasion that some part of the `Ui` is still animating and
+    /// requires further updates to do so.
+    pub fn needs_update(&mut self) {
+        self.ui_needs_update = true;
+    }
 }
