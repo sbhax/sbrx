@@ -8,3 +8,4 @@ image = "0.19.0"
 conrod = { version = "0.61.1", features = ["glium", "winit"] }
 lazy_static = "1.0.2"
 nfd = "0.0.4"
+discord-rpc-client = "^0.2"
