@@ -1,6 +1,8 @@
-# sbrx
+# sbrxLTGexperimental
 
-[![Build status](https://ci.appveyor.com/api/projects/status/jxtnh0v11efm0t7p?svg=true)](https://ci.appveyor.com/project/phase/sbrx)
-[![Build Status](https://travis-ci.org/sbhax/sbrx.svg?branch=master)](https://travis-ci.org/sbhax/sbrx)
+Experimental features added by me, LTG. Mainly made for Pull Requests so Phase can review changes before hand.
 
-WIP Sonic Battle Editor in Rust
+Current exclusive features:
+
+- Discord rich presence
+
