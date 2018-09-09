@@ -7,6 +7,9 @@ use std::sync::{Arc, Mutex};
 use image::open;
 use glium;
 
+use std::io;
+use discord_rpc_client::Client as DiscordRPC;
+
 use self::super::*;
 use self::super::data::*;
 
@@ -89,7 +92,7 @@ widget_ids! {
     }
 }
 
-pub fn gui(display: &glium::Display, image_map: &mut conrod::image::Map<glium::texture::Texture2d>, ui: &mut conrod::UiCell, ids: &Ids, app: &mut GuiState) {
+pub fn gui(display: &glium::Display, image_map: &mut conrod::image::Map<glium::texture::Texture2d>, ui: &mut conrod::UiCell, ids: &Ids, app: &mut GuiState, drpc: &mut DiscordRPC) { // Added drpc: &mut drpc to the end as you need to pass it through for the change on character select
     use conrod::{widget, Colorable, Labelable, Positionable, Sizeable, Widget};
     use std::iter::once;
 
@@ -167,8 +170,14 @@ pub fn gui(display: &glium::Display, image_map: &mut conrod::image::Map<glium::t
         .set(ids.character_dropdown, ui)
         {
             // Change character
+			
+			// let mut drpc = DiscordRPC::new(488064542417485844)
+				// .expect("Failed to create Discord Rich Presence client");
+			
+			// drpc.start();
+			
             app.selected_character_index = Some(selected_index);
-
+			
             let o_image = (if let Some(ref mut engine) = app.engine {
                 println!("Loading character data");
                 let character = CHARACTERS[selected_index];
@@ -177,7 +186,24 @@ pub fn gui(display: &glium::Display, image_map: &mut conrod::image::Map<glium::t
             } else {
                 None
             });
-
+			
+			
+			// Discord work by @LavenderTGreat
+			// This is my first time using rust to it may be terrible.
+			let character = CHARACTERS[selected_index];
+			let discordprefix = "Editting ";
+			let discordstate = format!("{}{}",discordprefix,character.name.to_string());
+			
+			if let Err(why) = drpc.set_activity(|a| a
+				.assets(|ass| ass
+					.large_image(character.name.to_string().to_lowercase())
+					.large_text("SBRX by Phase & co."))
+				.details(discordstate))
+			{
+				println!("Failed to set Rich Presence: {}", why);
+			}
+			// Discord work: End
+			
             if let Some(image) = o_image {
                 app.insert_image(display, image_map, image);
             }

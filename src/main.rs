@@ -5,6 +5,10 @@ extern crate lazy_static;
 #[macro_use]
 extern crate conrod;
 extern crate image;
+extern crate discord_rpc_client;
+
+use std::io;
+use discord_rpc_client::Client as DiscordRPC;
 
 use conrod::backend::glium::glium;
 use conrod::backend::glium::glium::Surface;
@@ -30,7 +34,27 @@ const WINDOW_WIDTH: u32 = gui::WINDOW_WIDTH;
 const WINDOW_HEIGHT: u32 = gui::WINDOW_HEIGHT;
 
 pub fn main() {
-    let mut events_loop = glium::glutin::EventsLoop::new();
+
+	// Discord work by @LavenderTGreat
+	// This is my first time using rust to it may be terrible.
+	
+    let mut drpc = DiscordRPC::new(488064542417485844)
+		.expect("Failed to create Discord Rich Presence client");
+	
+	drpc.start();
+	
+	if let Err(why) = drpc.set_activity(|a| a
+		.assets(|ass| ass
+			.large_image("mainnew")
+			.large_text("SBRX by Phase & co."))
+		.details("Hacking Sonic Battle"))
+	{
+		println!("Failed to set Rich Presence: {}", why);
+	}
+	
+	// Discord work: End
+	
+	let mut events_loop = glium::glutin::EventsLoop::new();
 
     let window = glium::glutin::WindowBuilder::new()
         .with_title(format!("sbrx v{}", VERSION))
@@ -106,7 +130,7 @@ pub fn main() {
             }
         }
 
-        gui::gui(&display, &mut image_map, &mut ui.set_widgets(), &ids, &mut app);
+        gui::gui(&display, &mut image_map, &mut ui.set_widgets(), &ids, &mut app, &mut drpc); // Added &mut drpc to the end as you need to pass it through for the change on character select
 
         if let Some(primitives) = ui.draw_if_changed() {
             renderer.fill(&display, primitives, &image_map);
